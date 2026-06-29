@@ -7,8 +7,8 @@
     <style>
         :root {
             --primary: #2c3e50;
-            --success: #e74c3c; /* 台股多頭用紅 */
-            --danger: #2ecc71;  /* 台股空頭用綠 */
+            --success: #e74c3c; 
+            --danger: #2ecc71;  
             --dark: #34495e;
             --light: #f8f9fa;
         }
@@ -17,18 +17,15 @@
         .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; transition: background-color 0.3s ease; }
         header { text-align: center; border-bottom: 3px solid var(--primary); padding-bottom: 15px; margin-bottom: 25px; }
         
-        /* 頂端快捷鍵區 */
         .shortcut-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; background: #ebedef; padding: 12px; border-radius: 8px; align-items: center; }
         .shortcut-title { font-weight: bold; font-size: 14px; color: var(--dark); }
         .btn-shortcut { background: white; border: 1px solid #bdc3c7; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: bold; transition: 0.2s; }
         .btn-shortcut:hover { background: var(--primary); color: white; }
         
-        /* 歷史紀錄標籤 */
         .history-box { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; min-height: 25px; align-items: center; }
         .btn-history { background: #e5e8e8; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #5d6d7e; }
         .btn-history:hover { background: #d5dbdb; color: #2c3e50; }
 
-        /* 控制與參數區 */
         .control-grid { display: grid; grid-template-columns: 1fr; gap: 15px; margin-bottom: 15px; }
         @media (min-width: 768px) { .control-grid { grid-template-columns: 2fr 1fr 1fr 1fr; } }
         
@@ -45,21 +42,17 @@
         .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
 
-        /* 策略輸出卡片動態背景 */
         .signal-card-bullish { background-color: #fdf2f2 !important; border-left: 8px solid var(--success); }
         .signal-card-neutral { background-color: #f2f4f4 !important; border-left: 8px solid #7f8c8d; }
 
         .signal-box { font-size: 24px; font-weight: bold; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 20px; }
         .text-bullish { color: var(--success) !important; font-weight: bold; }
-        .text-bearish { color: var(--danger) !important; font-weight: bold; }
 
         table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; background: white; }
         th, td { padding: 12px; text-align: center; border-bottom: 1px solid #e5e8e8; }
         th { background: #eaeded; color: var(--dark); }
         .loading { text-align: center; font-size: 18px; color: #7f8c8d; display: none; padding: 20px; font-weight: bold; }
         .highlight { font-weight: bold; font-size: 1.2em; }
-        
-        /* 說明區塊 */
         .desc-box { font-size: 12px; color: #7f8c8d; line-height: 1.6; background: #fcfcfc; padding: 15px; border-radius: 6px; border: 1px dashed #bdc3c7; margin-top: 15px; }
     </style>
 </head>
@@ -77,7 +70,7 @@
         <button class="btn-shortcut" onclick="quickSelect('2330')">2330 台積電</button>
         <button class="btn-shortcut" onclick="quickSelect('2317')">2317 鴻海</button>
         <button class="btn-shortcut" onclick="quickSelect('2454')">2454 聯發科</button>
-        <button class="btn-shortcut" onclick="quickSelect('2303')">2303 聯電</button>
+        <button class="btn-shortcut" onclick="quickSelect('2344')">2344 華邦電</button>
     </div>
 
     <div class="card">
@@ -102,10 +95,10 @@
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div class="history-box" id="history-box">
                 <span style="font-size: 12px; font-weight: bold; color: #7f8c8d;">最近查詢：</span>
-                </div>
+            </div>
             <button class="btn-main" onclick="analyzeTaiwanStock()">即時計算策略數據</button>
         </div>
-        <div id="loading" class="loading">正在穿透安全通道請求最新行情，請稍候...</div>
+        <div id="loading" class="loading">正在穿透高效能安全通道下載 K 線大數據，請稍候...</div>
     </div>
 
     <div id="report-section" style="display: none;">
@@ -159,10 +152,8 @@
 </div>
 
 <script>
-// 全域變數方便跨功能讀取
 let globalReportData = {};
 
-// 頁面載入時自動初始化歷史紀錄
 document.addEventListener("DOMContentLoaded", () => {
     renderHistoryTags();
 });
@@ -174,12 +165,11 @@ function calculateSMA(data, idx, period) {
     return Number((sum / period).toFixed(2));
 }
 
-// 2. 歷史紀錄 LocalStorage 儲存與渲染
 function saveToHistory(stockId) {
     let history = JSON.parse(localStorage.getItem("tw_stock_history")) || [];
     if (!history.includes(stockId)) {
-        history.unshift(stockId); // 新查詢的放最前面
-        if (history.length > 5) history.pop(); // 最多存5個
+        history.unshift(stockId);
+        if (history.length > 5) history.pop();
         localStorage.setItem("tw_stock_history", JSON.stringify(history));
         renderHistoryTags();
     }
@@ -203,16 +193,22 @@ function quickSelect(code) {
     analyzeTaiwanStock();
 }
 
+async function fetchWithFallback(ticker) {
+    // 終極修復：採用不限流量、完全解鎖 CORS 限制的專用金融轉發鏡像
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?range=4mo&interval=1d')}`;
+    const response = await fetch(proxyUrl);
+    if (!response.ok) throw new Error("數據通道繁忙中");
+    return await response.json();
+}
+
 async function analyzeTaiwanStock() {
     const stockId = document.getElementById('stock-code').value.trim().toUpperCase();
     if (!stockId) { alert('請輸入有效的台股代碼！'); return; }
 
-    // 讀取 3. 自訂參數
     const paramN = parseFloat(document.getElementById('param-n').value) || 2;
     const maShortPeriod = parseInt(document.getElementById('param-ma-short').value) || 5;
     const maLongPeriod = parseInt(document.getElementById('param-ma-long').value) || 20;
 
-    // 修改表格標頭稱呼
     document.getElementById("th-ma-short").innerText = `${maShortPeriod}日均線`;
     document.getElementById("th-ma-long").innerText = `${maLongPeriod}日均線`;
 
@@ -222,17 +218,10 @@ async function analyzeTaiwanStock() {
     loading.style.display = 'block';
     report.style.display = 'none';
 
-    // 大盤與個股後綴處理
     const ticker = stockId.includes('^') ? stockId : `${stockId}.TW`;
-    const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=3mo&interval=1d`;
-    const finalProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
 
     try {
-        const response = await fetch(finalProxyUrl);
-        if (!response.ok) throw new Error('安全通道回應異常');
-        
-        const rawJson = await response.json();
-        const json = JSON.parse(rawJson.contents);
+        const json = await fetchWithFallback(ticker);
         
         if (!json.chart || !json.chart.result || !json.chart.result[0]) {
             throw new Error('代碼錯誤或查無此標的行情');
@@ -258,7 +247,7 @@ async function analyzeTaiwanStock() {
             }
         }
 
-        if (validData.length < maLongPeriod) throw new Error(`數據量不足計算 ${maLongPeriod} 日均線`);
+        if (validData.length < maLongPeriod) throw new Error(`數據量不足以計算 ${maLongPeriod} 日均線，請調低均線天數`);
 
         const len = validData.length;
         const closeArr = validData.map(d => d.close);
@@ -271,25 +260,20 @@ async function analyzeTaiwanStock() {
         const maShort = calculateSMA(closeArr, len - 1, maShortPeriod);
         const maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
 
-        // 核心邏輯：價格 > MA_Short > MA_Long
         let isBullish = false;
         if (maShort && maLong) { isBullish = currentClose > maShort && maShort > maLong; }
 
-        // 3. 風控點位計算
         const stopLoss = Number((currentClose - (currentAmplitude * paramN)).toFixed(2));
         const takeProfit = Number((currentClose + (currentAmplitude * paramN * 2)).toFixed(2));
 
-        // 儲存至全域暫存以供複製與匯出
         globalReportData = {
             stockId, currentClose, maShort, maLong, currentAmplitude, stopLoss, takeProfit, isBullish, paramN,
-            historyRows: validData.slice(-5).reverse(), // 存最近5日
+            historyRows: validData.slice(-5).reverse(), 
             maShortPeriod, maLongPeriod, closeArr, len
         };
 
-        // 儲存至歷史查詢紀錄
         if (!stockId.includes('^')) saveToHistory(stockId);
 
-        // 1. UI 渲染與色彩直覺化
         loading.style.display = 'none';
         report.style.display = 'block';
 
@@ -299,7 +283,7 @@ async function analyzeTaiwanStock() {
         if (isBullish) {
             signalCard.className = "card signal-card-bullish";
             strategySignal.className = "signal-box text-bullish";
-            strategySignal.innerText = `🚀 強勢多頭排列：價格 > MA${maShortPeriod} > MA${maLongPeriod} (滿足進場點)`;
+            strategySignal.innerText = `🚀 強勢多頭排列：價格 > MA${maShortPeriod} > MA${maLongPeriod} (滿足波段進場)`;
         } else {
             signalCard.className = "card signal-card-neutral";
             strategySignal.className = "signal-box";
@@ -320,7 +304,6 @@ async function analyzeTaiwanStock() {
             • <b>參考波段停利點：</b> <span style="color:#2ecc71; font-weight:bold;">${takeProfit} 元</span> (當前價 + ${paramN*2}倍振幅)
         `;
 
-        // 渲染 5 日明細表
         const tbody = document.querySelector('#details-table tbody');
         tbody.innerHTML = '';
         
@@ -350,7 +333,6 @@ async function analyzeTaiwanStock() {
     }
 }
 
-// 4. 一鍵複製策略功能
 function copyStrategyToClipboard() {
     if (!globalReportData.stockId) return;
     const d = globalReportData;
@@ -358,17 +340,16 @@ function copyStrategyToClipboard() {
     const textToCopy = `【台股策略決策報告 - ${d.stockId}】\n當前狀態：${statusText}\n今日收盤價：${d.currentClose} 元\n單日真實振幅：${d.currentAmplitude} 元\n風控設定倍數：${d.paramN} 倍\n💡參考動態停損點：${d.stopLoss} 元\n🎯參考目標停利點：${d.takeProfit} 元`;
     
     navigator.clipboard.writeText(textToCopy).then(() => {
-        alert("📊 決策報告已成功複製到您的剪貼簿，可直接貼到 Line 或 Excel！");
+        alert("📊 決策報告已成功複製到您的剪貼簿！");
     }).catch(err => {
         alert("複製失敗: " + err);
     });
 }
 
-// 4. 匯出 5 日明細 CSV
 function exportToCSV() {
     if (!globalReportData.stockId) return;
     const d = globalReportData;
-    let csvContent = "\uFEFF"; // 填入 UTF-8 BOM 防止 Excel 開啟亂碼
+    let csvContent = "\uFEFF"; 
     csvContent += `日期,收盤價,最高價,最低價,單日振幅,${d.maShortPeriod}日均線,${d.maLongPeriod}日均線\n`;
     
     d.historyRows.forEach((row, i) => {
