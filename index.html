@@ -17,7 +17,6 @@
         .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
         header { text-align: center; border-bottom: 3px solid var(--primary); padding-bottom: 15px; margin-bottom: 25px; }
         
-        /* 控制區 */
         .search-box { display: flex; gap: 10px; margin-bottom: 15px; }
         input { flex: 1; padding: 12px; border: 2px solid #bdc3c7; border-radius: 6px; font-size: 16px; font-weight: bold; }
         input:focus { border-color: var(--primary); outline: none; }
@@ -27,7 +26,6 @@
         .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
 
-        /* 策略輸出欄位 */
         .signal-box { font-size: 24px; font-weight: bold; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 20px; }
         .bullish { background: rgba(231, 76, 60, 0.1); color: var(--success); border: 2px solid var(--success); }
         .neutral { background: #e5e8e8; color: #7f8c8d; border: 2px solid #bdc3c7; }
@@ -53,7 +51,7 @@
             <input type="text" id="stock-code" value="2330" placeholder="請輸入股票代碼，例如: 2330, 2317, 2454...">
             <button onclick="analyzeTaiwanStock()">即時計算策略數據</button>
         </div>
-        <div id="loading" class="loading">正在請求最新台股行情並計算多頭排列與振幅風控點位，請稍候...</div>
+        <div id="loading" class="loading">正在穿透安全通道請求台股最新行情，請稍候...</div>
     </div>
 
     <div id="report-section" style="display: none;">
@@ -94,7 +92,6 @@
 </div>
 
 <script>
-// 移動平均線計算函式
 function calculateSMA(data, idx, period) {
     if (idx < period - 1) return null;
     let sum = 0;
@@ -114,24 +111,27 @@ async function analyzeTaiwanStock() {
     loading.style.display = 'block';
     report.style.display = 'none';
 
+    // 核心修復：使用開源反向代理繞過 Yahoo Finance 的跨網域限制
+    const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${stockId}.TW?range=2mo&interval=1d`;
+    const finalProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+
     try {
-        // 使用不限 CORS 跨網域阻擋的公開財經 K 線節點 (支援台股格式: 代號.TW)
-        const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${stockId}.TW?range=2mo&interval=1d`);
-        if (!response.ok) throw new Error('代碼錯誤或伺服器無回應');
+        const response = await fetch(finalProxyUrl);
+        if (!response.ok) throw new Error('伺服器安全防護通道異常，請稍後再試');
         
-        const json = await response.json();
-        const result = json.chart.result[0];
+        const rawJson = await response.json();
+        const json = JSON.parse(rawJson.contents);
         
-        if (!result || !result.indicators.quote[0].close) {
-            throw new Error('查無此股票行情資料');
+        if (!json.chart || !json.chart.result || !json.chart.result[0]) {
+            throw new Error('證券代碼錯誤或查無此股票行情');
         }
 
+        const result = json.chart.result[0];
         const timestamps = result.timestamp;
         const closes = result.indicators.quote[0].close;
         const highs = result.indicators.quote[0].high;
         const lows = result.indicators.quote[0].low;
 
-        // 清理無效或空數據
         let validData = [];
         for (let i = 0; i < closes.length; i++) {
             if (closes[i] !== null && highs[i] !== null && lows[i] !== null) {
@@ -146,27 +146,27 @@ async function analyzeTaiwanStock() {
             }
         }
 
+        if (validData.length === 0) throw new Error('未能取得有效 K 線交易數據');
+
         const len = validData.length;
         const closeArr = validData.map(d => d.close);
 
-        // 1. 計算最新一日的指標
         const currentClose = validData[len - 1].close;
         const currentHigh = validData[len - 1].high;
         const currentLow = validData[len - 1].low;
         
-        // 要求點 2：完全取代 ATR 複雜公式，直接計算「單日振幅 (高-低)」
+        // 振幅完全取代 ATR
         const currentAmplitude = Number((currentHigh - currentLow).toFixed(2)); 
 
         const ma5 = calculateSMA(closeArr, len - 1, 5);
         const ma20 = calculateSMA(closeArr, len - 1, 20);
 
-        // 要求點 4：策略核心邏輯改為 價格 > MA5 > MA20 (均線多頭排列)
+        // 多頭排列邏輯：收盤價 > MA5 > MA20
         let isBullish = false;
         if (ma5 && ma20) {
             isBullish = currentClose > ma5 && ma5 > ma20;
         }
 
-        // 訊號狀態判定
         let signalText = "";
         let signalClass = "";
 
@@ -178,12 +178,11 @@ async function analyzeTaiwanStock() {
             signalClass = "neutral";
         }
 
-        // 要求點 3：2 倍振幅動態風控計算
+        // 2倍振幅動態風控
         const N = 2;
-        const stopLoss = Number((currentClose - (currentAmplitude * N)).toFixed(2)); // 收盤價 - N倍振幅
-        const takeProfit = Number((currentClose + (currentAmplitude * N * 2)).toFixed(2)); // 盈虧比 1:2 參考點
+        const stopLoss = Number((currentClose - (currentAmplitude * N)).toFixed(2));
+        const takeProfit = Number((currentClose + (currentAmplitude * N * 2)).toFixed(2));
 
-        // 2. 渲染策略數據面板
         loading.style.display = 'none';
         report.style.display = 'block';
 
@@ -192,8 +191,8 @@ async function analyzeTaiwanStock() {
 
         document.getElementById('technical-data').innerHTML = `
             • <b>當前收盤價：</b> <span class="highlight">${currentClose}</span> 元<br>
-            • <b>5日均線均價 (MA5)：</b> ${ma5} 元<br>
-            • <b>20日均線均價 (MA20)：</b> ${ma20} 元<br>
+            • <b>5日均線 (MA5)：</b> ${ma5} 元<br>
+            • <b>20日均線 (MA20)：</b> ${ma20} 元<br>
             • <b>當日真實振幅 (高 - 低)：</b> ${currentAmplitude} 元 (最高 ${currentHigh} / 最低 ${currentLow})
         `;
 
@@ -203,7 +202,6 @@ async function analyzeTaiwanStock() {
             • <b>參考波段停利點：</b> <span style="color:#2ecc71; font-weight:bold;">${takeProfit} 元</span> (當前收盤價 + ${N*2}倍振幅)
         `;
 
-        // 3. 填寫最近 5 日細節明細
         const tbody = document.querySelector('#details-table tbody');
         tbody.innerHTML = '';
         let count = 0;
@@ -229,7 +227,7 @@ async function analyzeTaiwanStock() {
 
     } catch (error) {
         loading.style.display = 'none';
-        alert('策略計算失敗，請確認代碼是否正確。錯誤原因: ' + error.message);
+        alert('策略計算失敗，原因: ' + error.message);
     }
 }
 </script>
