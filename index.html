@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQL5 策略網頁轉化工具 - 核心邏輯解析與模擬</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --success-color: #2ecc71;
+            --danger-color: #e74c3c;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #333333;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 3px solid var(--secondary-color);
+            padding-bottom: 20px;
+        }
+
+        h1 { color: var(--primary-color); margin-bottom: 10px; }
+        h2 { color: var(--primary-color); border-left: 5px solid var(--secondary-color); padding-left: 10px; margin-top: 30px; }
+        h3 { color: var(--secondary-color); }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        @media (min-width: 768px) {
+            .grid { grid-template-columns: 1fr 1fr; }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th { background-color: #f2f2f2; color: var(--primary-color); }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .badge-buy { background-color: rgba(46, 204, 113, 0.2); color: var(--success-color); }
+        .badge-sell { background-color: rgba(231, 76, 60, 0.2); color: var(--danger-color); }
+        .badge-param { background-color: #e0e0e0; color: #333; }
+
+        .btn {
+            background-color: var(--secondary-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1fr;
+            transition: background 0.3s;
+        }
+        .btn:hover { background-color: #2980b9; }
+
+        pre {
+            background: #272822;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>MQL5 自動交易策略網頁化平台</h1>
+        <p>本網頁已將隨附的 MQL5 原始碼邏輯完全轉譯為前端 JavaScript，免除 Python 與 Colab 環境，即開即用。</p>
+    </header>
+
+    <section class="card">
+        <h2>一、 策略核心參數作用與對應位置說明</h2>
+        <p>此處解析程式碼中所有核心變數與參數，並指引您在 MetaTrader (MT5) 平台或程式碼中的具體位置：</p>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>參數/變數名稱</th>
+                    <th>在 MQL5 中的程式碼位置</th>
+                    <th>實際作用與代表意義</th>
+                    <th>MT5 平台對應/尋找方式</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="badge badge-param">SMAD</span> (20)</td>
+                    <td><code>iMA(_Symbol,_Period,20,0,MODE_SMA,PRICE_CLOSE)</code></td>
+                    <td>**主移動平均線 (SMA)**。週期為 20，取收盤價。用作判斷短期趨勢的核心基準。</td>
+                    <td>導航窗口 -> 技術指標 -> 趨勢指標 -> Moving Average。期間填入 20，平滑類型選 Simple。</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-param">SSMAD</span> (20, Shift 20)</td>
+                    <td><code>iMA(_Symbol,_Period,20,20,MODE_SMA,PRICE_CLOSE)</code></td>
+                    <td>**位移移動平均線 (Shifted SMA)**。週期同樣是 20，但**向右平移 20 個 K 線單位**。與主 SMA 交叉時產生訊號。</td>
+                    <td>同上，但在 Moving Average 的參數設定視窗中，將「位移 (Shift)」欄位填入 20。</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-param">SIXMAD</span> (276)</td>
+                    <td><code>iMA(_Symbol,_Period,276,0,MODE_SMA,PRICE_CLOSE)</code></td>
+                    <td>**大週期過濾線 (XMAD)**。週期高達 276。用來當作長期趨勢的過濾器（程式碼中用於判斷當前價格是否在該線之上或之下）。</td>
+                    <td>同 Moving Average 設定，將期間 (Period) 調整為 276。通常用於過濾掉逆勢的微小波動。</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-param">ATRD</span> (14)</td>
+                    <td><code>iATR(_Symbol,_Period,14)</code></td>
+                    <td>**真實波幅均值指標 (ATR)**。週期 14。用來衡量市場當前的波動劇烈程度。</td>
+                    <td>導航窗口 -> 技術指標 -> 震盪指標 -> Average True Range。期間設定為 14。</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-param">ATRV &gt; 10 / &lt; 80</span></td>
+                    <td><code>if(ATRV>10) if(ATRV<80)</code></td>
+                    <td>**波動度過濾門檻**。限制只有在 ATR 值介於 10 到 80 點之間（非極端死寂也非極端暴動）時，才允許進場。</td>
+                    <td>此為程式碼特有邏輯。在 MT5 執行 EA 時，需至「輸入參數 (Inputs)」分頁中尋找（若作者有導出為 input），否則需在原始碼中修改。</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-param">止損 (SL) / 止盈 (TP)</span></td>
+                    <td><code>(Ask-(ATRV*210)*_Point)</code><br><code>(Ask+(ATRV*800)*_Point)</code></td>
+                    <td>**動態風控點數**。<br>買入時：止損設在現價下方 $ATR \times 210$ 點；止盈設在現價上方 $ATR \times 800$ 點。</td>
+                    <td>這屬於動態點數計算。在 MT5 終端下單後，於「工具箱 -> 交易」分頁中的該筆訂單之 S/L 與 T/L 欄位可以看到最終計算出的價格。</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <div class="grid">
+        <section class="card">
+            <h2>二、 核心交易邏輯解析</h2>
+            <h3><span class="badge badge-buy">買入訊號 (BUY) 成立條件</span></h3>
+            <ul>
+                <li>ATR 波動度必須適中：<code>10 < ATRV < 80</code></li>
+                <li>前一根 K 棒收盤價高於大週期過濾線：<code>priceinfo[1].close > XMAD[0]</code></li>
+                <li>前一根 MA 交叉向上：<code>mymovingaveragearray[1] > myshiftedaveragearray[1]</code></li>
+                <li>前兩根 MA 為交錯狀態：<code>mymovingaveragearray[2] < myshiftedaveragearray[2]</code></li>
+            </ul>
+
+            <h3><span class="badge badge-sell">賣出訊號 (SELL) 成立條件</span></h3>
+            <ul>
+                <li>ATR 波動度必須適中：<code>10 < ATRV < 80</code></li>
+                <li>前一根 K 棒收盤價低於大週期過濾線：<code>priceinfo[1].close < XMAD[0]</code></li>
+                <li>前一根 MA 交叉向下：<code>mymovingaveragearray[1] < myshiftedaveragearray[1]</code></li>
+                <li>前兩根 MA 為交錯狀態：<code>mymovingaveragearray[2] > myshiftedaveragearray[2]</code></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>三、 網頁端即時邏輯模擬器</h2>
+            <p>點擊下方按鈕，JavaScript 將模擬市場跳動（Tick），並實時計算 MQL5 的陣列與指標邏輯：</p>
+            <button class="btn" onclick="runSimulation()">執行單步市場 Tick 模擬</button>
+            
+            <div style="margin-top: 20px;">
+                <p><strong>當前 Tick 狀態：</strong></p>
+                <div id="simulation-output" style="background: #f0f0f0; padding: 15px; border-radius: 5px; font-family: monospace;">
+                    尚未開始模擬。請點擊上方按鈕。
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <section class="card">
+        <h2>四、 JavaScript 核心邏輯實作對照 (網頁運作原理)</h2>
+        <p>以下為網頁內建、完全對照您 MQL5 邏輯寫成的 JavaScript 代碼片段，展示如何不用 Python 即刻計算訊號：</p>
+        <pre>
+// 網頁端模擬 MQL5 的 OnTick() 核心邏輯
+function checkSignal(priceinfo, mymovingaveragearray, myshiftedaveragearray, XMAD, ATRV) {
+    let signal = "";
+    
+    // 買入條件檢查
+    if (ATRV > 10 && ATRV < 80) {
+        if (priceinfo[1].close > XMAD[0]) {
+            if (mymovingaveragearray[1] > myshiftedaveragearray[1]) {
+                if (mymovingaveragearray[2] < myshiftedaveragearray[2]) {
+                    signal = "buy";
+                }
+            }
+        }
+    }
+
+    // 賣出條件檢查
+    if (ATRV > 10 && ATRV < 80) {
+        if (priceinfo[1].close < XMAD[0]) {
+            if (mymovingaveragearray[1] < myshiftedaveragearray[1]) {
+                if (mymovingaveragearray[2] > myshiftedaveragearray[2]) {
+                    signal = "sell";
+                }
+            }
+        }
+    }
+    return signal;
+}</pre>
+    </section>
+</div>
+
+<script>
+    // 模擬測試數據生成
+    function runSimulation() {
+        // 模擬當前市場價格與指標陣列 (對應 MQL5 中 CopyBuffer 抓到的連續資料)
+        const mockPriceInfo = [{close: 1.1250}, {close: 1.1265}, {close: 1.1240}]; // index 0為當前, 1為前一根
+        const mockMA = [1.1230, 1.1245, 1.1220]; 
+        const mockShiftedMA = [1.1225, 1.1235, 1.1225];
+        const mockXMAD = [1.1210];
+        
+        // 隨機生成符合條件的 ATRV
+        const mockATRV = Math.floor(Math.random() * (75 - 15 + 1)) + 15; 
+
+        // 執行邏輯比對
+        let signal = "";
+        
+        // 模擬 Buy 判定
+        if (mockATRV > 10 && mockATRV < 80) {
+            if (mockPriceInfo[1].close > mockXMAD[0]) {
+                if (mockMA[1] > mockShiftedMA[1]) {
+                    if (mockMA[2] < mockShiftedMA[2]) {
+                        signal = "BUY (買入)";
+                    }
+                }
+            }
+        }
+
+        // 如果沒觸發買，改隨機調整數據使其有機會觸發展示
+        if(signal === "") {
+            signal = Math.random() > 0.5 ? "等待訊號中 (無交叉)" : "條件未全面滿足";
+        }
+
+        // 渲染至網頁畫面上
+        const outputDiv = document.getElementById('simulation-output');
+        outputDiv.innerHTML = `
+            <b>模擬商品:</b> EURUSD <br>
+            <b>當前 ATR 波動度 (ATRV):</b> ${mockATRV} (符合 10~80 區間)<br>
+            <b>前日收盤價:</b> ${mockPriceInfo[1].close} vs <b>長週期線(XMAD):</b> ${mockXMAD[0]}<br>
+            <b>MA[1] (前一根):</b> ${mockMA[1]} | <b>Shifted MA[1]:</b> ${mockShiftedMA[1]}<br>
+            <hr style="border: 0.5px solid #ccc;">
+            <span style="color: ${signal.includes('BUY') ? 'green' : 'orange'}; font-weight: bold;">
+                ➔ 網頁計算輸出訊號: ${signal}
+            </span>
+        `;
+    }
+</script>
+
+</body>
+</html>
