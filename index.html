@@ -7,8 +7,8 @@
     <style>
         :root {
             --primary: #2c3e50;
-            --success: #e74c3c; /* 台股多頭用紅 */
-            --danger: #2ecc71;  /* 台股空頭用綠 */
+            --success: #e74c3c;
+            --danger: #2ecc71;
             --dark: #34495e;
             --light: #f8f9fa;
         }
@@ -16,20 +16,16 @@
         .container { max-width: 1000px; margin: 0 auto; }
         .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
         header { text-align: center; border-bottom: 3px solid var(--primary); padding-bottom: 15px; margin-bottom: 25px; }
-        
         .search-box { display: flex; gap: 10px; margin-bottom: 15px; }
         input { flex: 1; padding: 12px; border: 2px solid #bdc3c7; border-radius: 6px; font-size: 16px; font-weight: bold; }
         input:focus { border-color: var(--primary); outline: none; }
         button { background: var(--primary); color: white; border: none; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; }
         button:hover { background: var(--dark); }
-
         .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
-
         .signal-box { font-size: 24px; font-weight: bold; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 20px; }
         .bullish { background: rgba(231, 76, 60, 0.1); color: var(--success); border: 2px solid var(--success); }
         .neutral { background: #e5e8e8; color: #7f8c8d; border: 2px solid #bdc3c7; }
-
         table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
         th, td { padding: 12px; text-align: center; border-bottom: 1px solid #e5e8e8; }
         th { background: var(--light); color: var(--dark); }
@@ -42,16 +38,16 @@
 <div class="container">
     <header>
         <h1>台股均線排列與動態振幅策略決策工具</h1>
-        <p>直接輸入股票代號・純前端 JavaScript 計算・免 Python 環境</p>
+        <p>直接輸入股票代號・純前端 JavaScript 計算・專屬 Cloudflare 穩定通道</p>
     </header>
 
     <div class="card">
         <h3>第一步：請輸入台股個股代號</h3>
         <div class="search-box">
-            <input type="text" id="stock-code" value="2330" placeholder="請輸入股票代碼，例如: 2330, 2317, 2454...">
+            <input type="text" id="stock-code" value="2330" placeholder="請輸入股票代碼，例如: 2330, 2317...">
             <button onclick="analyzeTaiwanStock()">即時計算策略數據</button>
         </div>
-        <div id="loading" class="loading">正在穿透安全通道請求台股最新行情，請稍候...</div>
+        <div id="loading" class="loading">正在透過專屬安全通道請求最新行情，請稍候...</div>
     </div>
 
     <div id="report-section" style="display: none;">
@@ -95,9 +91,7 @@
 function calculateSMA(data, idx, period) {
     if (idx < period - 1) return null;
     let sum = 0;
-    for (let i = 0; i < period; i++) {
-        sum += data[idx - i];
-    }
+    for (let i = 0; i < period; i++) { sum += data[idx - i]; }
     return Number((sum / period).toFixed(2));
 }
 
@@ -111,16 +105,15 @@ async function analyzeTaiwanStock() {
     loading.style.display = 'block';
     report.style.display = 'none';
 
-    // 核心修復：使用開源反向代理繞過 Yahoo Finance 的跨網域限制
-    const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${stockId}.TW?range=2mo&interval=1d`;
-    const finalProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+    // ⚠️ 核心修改：請把下方網址替換為您在 Cloudflare 產生的專屬 Worker 網址
+    const workerBaseUrl = "https://plain-frost-2100.tedclub.workers.dev/"; 
+    const finalUrl = `${workerBaseUrl}?symbol=${stockId}.TW`;
 
     try {
-        const response = await fetch(finalProxyUrl);
-        if (!response.ok) throw new Error('伺服器安全防護通道異常，請稍後再試');
+        const response = await fetch(finalUrl);
+        if (!response.ok) throw new Error('專屬通道回應異常');
         
-        const rawJson = await response.json();
-        const json = JSON.parse(rawJson.contents);
+        const json = await response.json();
         
         if (!json.chart || !json.chart.result || !json.chart.result[0]) {
             throw new Error('證券代碼錯誤或查無此股票行情');
@@ -146,7 +139,7 @@ async function analyzeTaiwanStock() {
             }
         }
 
-        if (validData.length === 0) throw new Error('未能取得有效 K 線交易數據');
+        if (validData.length === 0) throw new Error('未能取得有效交易數據');
 
         const len = validData.length;
         const closeArr = validData.map(d => d.close);
@@ -154,31 +147,17 @@ async function analyzeTaiwanStock() {
         const currentClose = validData[len - 1].close;
         const currentHigh = validData[len - 1].high;
         const currentLow = validData[len - 1].low;
-        
-        // 振幅完全取代 ATR
         const currentAmplitude = Number((currentHigh - currentLow).toFixed(2)); 
 
         const ma5 = calculateSMA(closeArr, len - 1, 5);
         const ma20 = calculateSMA(closeArr, len - 1, 20);
 
-        // 多頭排列邏輯：收盤價 > MA5 > MA20
         let isBullish = false;
-        if (ma5 && ma20) {
-            isBullish = currentClose > ma5 && ma5 > ma20;
-        }
+        if (ma5 && ma20) { isBullish = currentClose > ma5 && ma5 > ma20; }
 
-        let signalText = "";
-        let signalClass = "";
+        let signalText = isBullish ? "🚀 強勢多頭排列：價格 > MA5 > MA20 (滿足波段進場)" : "⚖️ 趨勢非多頭：未滿足多頭排列條件 (建議觀望)";
+        let signalClass = isBullish ? "bullish" : "neutral";
 
-        if (isBullish) {
-            signalText = "🚀 強勢多頭排列：價格 > MA5 > MA20 (滿足波段進場)";
-            signalClass = "bullish";
-        } else {
-            signalText = "⚖️ 趨勢非多頭：未滿足多頭排列條件 (建議觀望)";
-            signalClass = "neutral";
-        }
-
-        // 2倍振幅動態風控
         const N = 2;
         const stopLoss = Number((currentClose - (currentAmplitude * N)).toFixed(2));
         const takeProfit = Number((currentClose + (currentAmplitude * N * 2)).toFixed(2));
@@ -210,18 +189,7 @@ async function analyzeTaiwanStock() {
             let amp = Number((validData[i].high - validData[i].low).toFixed(2));
             let m5 = calculateSMA(closeArr, i, 5) || '-';
             let m20 = calculateSMA(closeArr, i, 20) || '-';
-            
-            tbody.innerHTML += `
-                <tr>
-                    <td>${validData[i].date}</td>
-                    <td><b>${validData[i].close}</b></td>
-                    <td>${validData[i].high}</td>
-                    <td>${validData[i].low}</td>
-                    <td>${amp}</td>
-                    <td>${m5}</td>
-                    <td>${m20}</td>
-                </tr>
-            `;
+            tbody.innerHTML += `<tr><td>${validData[i].date}</td><td><b>${validData[i].close}</b></td><td>${validData[i].high}</td><td>${validData[i].low}</td><td>${amp}</td><td>${m5}</td><td>${m20}</td></tr>`;
             count++;
         }
 
