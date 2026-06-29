@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>台股證交所大數據策略決策儀表板</title>
+    <title>台股個股策略決策與動態風控儀表板</title>
     <style>
         :root {
             --primary: #2c3e50;
@@ -13,10 +13,11 @@
             --light: #f8f9fa;
         }
         body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background: #f0f3f4; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 1100px; margin: 0 auto; }
+        .container { max-width: 1000px; margin: 0 auto; }
         .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
         header { text-align: center; border-bottom: 3px solid var(--primary); padding-bottom: 15px; margin-bottom: 25px; }
         
+        /* 控制區 */
         .search-box { display: flex; gap: 10px; margin-bottom: 15px; }
         input { flex: 1; padding: 12px; border: 2px solid #bdc3c7; border-radius: 6px; font-size: 16px; font-weight: bold; }
         input:focus { border-color: var(--primary); outline: none; }
@@ -26,16 +27,15 @@
         .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
 
+        /* 策略輸出欄位 */
         .signal-box { font-size: 24px; font-weight: bold; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 20px; }
         .bullish { background: rgba(231, 76, 60, 0.1); color: var(--success); border: 2px solid var(--success); }
-        .bearish { background: rgba(46, 204, 113, 0.1); color: var(--danger); border: 2px solid var(--danger); }
         .neutral { background: #e5e8e8; color: #7f8c8d; border: 2px solid #bdc3c7; }
 
         table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
         th, td { padding: 12px; text-align: center; border-bottom: 1px solid #e5e8e8; }
         th { background: var(--light); color: var(--dark); }
         .loading { text-align: center; font-size: 18px; color: #7f8c8d; display: none; padding: 20px; }
-        
         .highlight { font-weight: bold; font-size: 1.1em; color: var(--success); }
     </style>
 </head>
@@ -43,38 +43,38 @@
 
 <div class="container">
     <header>
-        <h1>台股證交所大數據策略決策儀表板</h1>
-        <p>免 Python / Colab 運作環境！透過代理轉發即時解析證交所官方行情</p>
+        <h1>台股均線排列與動態振幅策略決策工具</h1>
+        <p>直接輸入股票代號・純前端 JavaScript 計算・免 Python 環境</p>
     </header>
 
     <div class="card">
-        <h3>請輸入台股個股代號</h3>
+        <h3>第一步：請輸入台股個股代號</h3>
         <div class="search-box">
-            <input type="text" id="stock-code" value="2330" placeholder="例如: 2330, 2317, 2454...">
-            <button onclick="analyzeStock()">開始證交所大數據分析</button>
+            <input type="text" id="stock-code" value="2330" placeholder="請輸入股票代碼，例如: 2330, 2317, 2454...">
+            <button onclick="analyzeTaiwanStock()">即時計算策略數據</button>
         </div>
-        <div id="loading" class="loading">正在穿透 CORS 跨網域防護，即時請求證交所數據，請稍候...</div>
+        <div id="loading" class="loading">正在請求最新台股行情並計算多頭排列與振幅風控點位，請稍候...</div>
     </div>
 
     <div id="report-section" style="display: none;">
         <div class="card">
-            <h3>綜合策略建議輸出</h3>
+            <h3>第二步：台股新策略決策輸出</h3>
             <div id="strategy-signal" class="signal-box"></div>
             
             <div class="grid">
                 <div>
-                    <h4>📈 均線與振幅風控數據</h4>
+                    <h4>📊 均線排列與單日振幅數據</h4>
                     <p id="technical-data" style="line-height: 2;"></p>
                 </div>
                 <div>
-                    <h4>💼 風控參考與目標指引 (N=2倍振幅)</h4>
+                    <h4>💼 2倍振幅動態風控引導 (N = 2)</h4>
                     <p id="risk-data" style="line-height: 2; background: var(--light); padding: 15px; border-radius: 6px;"></p>
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h3>證交所最近行情與振幅明細</h3>
+            <h3>第三步：最近 5 日台股行情與真實振幅明細表</h3>
             <table id="details-table">
                 <thead>
                     <tr>
@@ -83,8 +83,8 @@
                         <th>最高價</th>
                         <th>最低價</th>
                         <th>單日振幅 (高-低)</th>
-                        <th>5日均價 (MA5)</th>
-                        <th>20日均價 (MA20)</th>
+                        <th>5日均線 (MA5)</th>
+                        <th>20日均線 (MA20)</th>
                     </tr>
                 </thead>
                 <tbody></tbody>
@@ -94,19 +94,19 @@
 </div>
 
 <script>
-// 計算簡單移動平均線
-function getSMA(arr, idx, period) {
+// 移動平均線計算函式
+function calculateSMA(data, idx, period) {
     if (idx < period - 1) return null;
     let sum = 0;
     for (let i = 0; i < period; i++) {
-        sum += arr[idx - i];
+        sum += data[idx - i];
     }
     return Number((sum / period).toFixed(2));
 }
 
-async function analyzeStock() {
+async function analyzeTaiwanStock() {
     const stockId = document.getElementById('stock-code').value.trim();
-    if (!stockId) { alert('請輸入股票代碼！'); return; }
+    if (!stockId) { alert('請輸入有效的台股代碼！'); return; }
 
     const loading = document.getElementById('loading');
     const report = document.getElementById('report-section');
@@ -115,70 +115,75 @@ async function analyzeStock() {
     report.style.display = 'none';
 
     try {
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dateStr = `${yyyy}${mm}01`;
-
-        // 【修復核心】：使用全公開且支援 HTTPS 的 allorigins 代理伺服器，將證交所 URL 包裹起來
-        const targetUrl = `https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date=${dateStr}&stockNo=${stockId}`;
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+        // 使用不限 CORS 跨網域阻擋的公開財經 K 線節點 (支援台股格式: 代號.TW)
+        const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${stockId}.TW?range=2mo&interval=1d`);
+        if (!response.ok) throw new Error('代碼錯誤或伺服器無回應');
         
-        const response = await fetch(proxyUrl);
-        if (!response.ok) throw new Error('代理伺服器回應異常');
+        const json = await response.json();
+        const result = json.chart.result[0];
         
-        const rawJson = await response.json();
-        // allorigins 會將目標結果放在 contents 字串中，需要二次解析
-        const priceData = JSON.parse(rawJson.contents);
-
-        if (!priceData.data || priceData.data.length === 0) {
-            throw new Error('未能在證交所找到該個股本月數據。');
+        if (!result || !result.indicators.quote[0].close) {
+            throw new Error('查無此股票行情資料');
         }
 
-        let rawRows = priceData.data; 
-        let closes = rawRows.map(r => parseFloat(r[6].replace(/,/g, '')));
-        let highs = rawRows.map(r => parseFloat(r[4].replace(/,/g, '')));
-        let lows = rawRows.map(r => parseFloat(r[5].replace(/,/g, '')));
-        let dates = rawRows.map(r => r[0]);
+        const timestamps = result.timestamp;
+        const closes = result.indicators.quote[0].close;
+        const highs = result.indicators.quote[0].high;
+        const lows = result.indicators.quote[0].low;
 
-        const totalLen = closes.length;
+        // 清理無效或空數據
+        let validData = [];
+        for (let i = 0; i < closes.length; i++) {
+            if (closes[i] !== null && highs[i] !== null && lows[i] !== null) {
+                let dateObj = new Date(timestamps[i] * 1000);
+                let dateString = `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,'0')}-${String(dateObj.getDate()).padStart(2,'0')}`;
+                validData.push({
+                    date: dateString,
+                    close: Number(closes[i].toFixed(2)),
+                    high: Number(highs[i].toFixed(2)),
+                    low: Number(lows[i].toFixed(2))
+                });
+            }
+        }
 
-        // 計算最新數據
-        const currentClose = closes[totalLen - 1];
-        const currentHigh = highs[totalLen - 1];
-        const currentLow = lows[totalLen - 1];
-        const currentAmplitude = Number((currentHigh - currentLow).toFixed(2));
+        const len = validData.length;
+        const closeArr = validData.map(d => d.close);
 
-        const ma5 = getSMA(closes, totalLen - 1, 5);
-        const ma20Period = totalLen >= 20 ? 20 : totalLen;
-        const ma20 = getSMA(closes, totalLen - 1, ma20Period);
+        // 1. 計算最新一日的指標
+        const currentClose = validData[len - 1].close;
+        const currentHigh = validData[len - 1].high;
+        const currentLow = validData[len - 1].low;
+        
+        // 要求點 2：完全取代 ATR 複雜公式，直接計算「單日振幅 (高-低)」
+        const currentAmplitude = Number((currentHigh - currentLow).toFixed(2)); 
 
-        // 模擬籌碼
-        const instNetBuy = Math.random() > 0.4;
+        const ma5 = calculateSMA(closeArr, len - 1, 5);
+        const ma20 = calculateSMA(closeArr, len - 1, 20);
 
-        let isBullishAlignment = false;
+        // 要求點 4：策略核心邏輯改為 價格 > MA5 > MA20 (均線多頭排列)
+        let isBullish = false;
         if (ma5 && ma20) {
-            isBullishAlignment = currentClose > ma5 && ma5 > ma20;
+            isBullish = currentClose > ma5 && ma5 > ma20;
         }
 
+        // 訊號狀態判定
         let signalText = "";
         let signalClass = "";
 
-        if (isBullishAlignment && instNetBuy) {
-            signalText = "🚀 偏多強勢：均線多頭排列 + 法人同步買超";
+        if (isBullish) {
+            signalText = "🚀 強勢多頭排列：價格 > MA5 > MA20 (滿足波段進場)";
             signalClass = "bullish";
-        } else if (isBullishAlignment || instNetBuy) {
-            signalText = "⚖️ 震盪觀望：均線多頭或籌碼面單一符合，趨勢未明";
-            signalClass = "neutral";
         } else {
-            signalText = "⚠️ 偏空戒備：價格跌破均線 或 法人持續調節";
-            signalClass = "bearish";
+            signalText = "⚖️ 趨勢非多頭：未滿足多頭排列條件 (建議觀望)";
+            signalClass = "neutral";
         }
 
-        const N = 2; 
-        const stopLoss = Number((currentClose - (currentAmplitude * N)).toFixed(2));
-        const takeProfit = Number((currentClose + (currentAmplitude * N * 2)).toFixed(2));
+        // 要求點 3：2 倍振幅動態風控計算
+        const N = 2;
+        const stopLoss = Number((currentClose - (currentAmplitude * N)).toFixed(2)); // 收盤價 - N倍振幅
+        const takeProfit = Number((currentClose + (currentAmplitude * N * 2)).toFixed(2)); // 盈虧比 1:2 參考點
 
+        // 2. 渲染策略數據面板
         loading.style.display = 'none';
         report.style.display = 'block';
 
@@ -186,45 +191,45 @@ async function analyzeStock() {
         document.getElementById('strategy-signal').innerText = signalText;
 
         document.getElementById('technical-data').innerHTML = `
-            • <b>今日收盤價：</b> <span class="highlight">${currentClose}</span> 元<br>
-            • <b>5日均價 (MA5)：</b> ${ma5 ? ma5 : '計算中'} 元<br>
-            • <b>20日均價 (MA20)：</b> ${ma20 ? ma20 : '計算中'} 元 (${ma20Period}日均)<br>
-            • <b>今日單日振幅 (高-低)：</b> ${currentAmplitude} 元 (最高 ${currentHigh} / 最低 ${currentLow})<br>
-            • <b>三大法人當日籌碼動向：</b> ${instNetBuy ? '<span style="color:red;font-weight:bold;">外資/投信偏多買超</span>' : '<span style="color:green;font-weight:bold;">法人偏空調節/觀望</span>'}
+            • <b>當前收盤價：</b> <span class="highlight">${currentClose}</span> 元<br>
+            • <b>5日均線均價 (MA5)：</b> ${ma5} 元<br>
+            • <b>20日均線均價 (MA20)：</b> ${ma20} 元<br>
+            • <b>當日真實振幅 (高 - 低)：</b> ${currentAmplitude} 元 (最高 ${currentHigh} / 最低 ${currentLow})
         `;
 
         document.getElementById('risk-data').innerHTML = `
-            • <b>動態風控設定倍數 (N)：</b> ${N} 倍<br>
-            • <b>參考停損價位：</b> <span style="color:green; font-weight:bold;">${stopLoss} 元</span> (收盤價 - ${N}倍振幅)<br>
-            • <b>參考停利目標價：</b> <span style="color:red; font-weight:bold;">${takeProfit} 元</span> (收盤價 + ${N*2}倍振幅)
+            • <b>動態風控乘數 (N)：</b> ${N} 倍<br>
+            • <b>參考動態停損價：</b> <span style="color:#e74c3c; font-weight:bold;">${stopLoss} 元</span> (當前收盤價 - ${N}倍振幅)<br>
+            • <b>參考波段停利點：</b> <span style="color:#2ecc71; font-weight:bold;">${takeProfit} 元</span> (當前收盤價 + ${N*2}倍振幅)
         `;
 
+        // 3. 填寫最近 5 日細節明細
         const tbody = document.querySelector('#details-table tbody');
         tbody.innerHTML = '';
-        let displayCount = 0;
-        for (let i = totalLen - 1; i >= 0; i--) {
-            if (displayCount >= 5) break;
-            let amp = Number((highs[i] - lows[i]).toFixed(2));
-            let m5 = getSMA(closes, i, 5) || '-';
-            let m20 = getSMA(closes, i, totalLen >= 20 ? 20 : totalLen) || '-';
+        let count = 0;
+        for (let i = len - 1; i >= 0; i--) {
+            if (count >= 5) break;
+            let amp = Number((validData[i].high - validData[i].low).toFixed(2));
+            let m5 = calculateSMA(closeArr, i, 5) || '-';
+            let m20 = calculateSMA(closeArr, i, 20) || '-';
             
             tbody.innerHTML += `
                 <tr>
-                    <td>${dates[i]}</td>
-                    <td><b>${closes[i]}</b></td>
-                    <td>${highs[i]}</td>
-                    <td>${lows[i]}</td>
+                    <td>${validData[i].date}</td>
+                    <td><b>${validData[i].close}</b></td>
+                    <td>${validData[i].high}</td>
+                    <td>${validData[i].low}</td>
                     <td>${amp}</td>
                     <td>${m5}</td>
                     <td>${m20}</td>
                 </tr>
             `;
-            displayCount++;
+            count++;
         }
 
     } catch (error) {
         loading.style.display = 'none';
-        alert('計算失敗，原因: ' + error.message);
+        alert('策略計算失敗，請確認代碼是否正確。錯誤原因: ' + error.message);
     }
 }
 </script>
