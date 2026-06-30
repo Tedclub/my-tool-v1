@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>台股個股策略決策與動態風控儀表板 - 終極完全體回測版</title>
+    <title>台股個股策略決策與動態風控儀表板</title>
     <style>
         :root {
             --primary: #2c3e50;
@@ -29,7 +29,6 @@
         .input-group label { font-size: 13px; font-weight: bold; margin-bottom: 5px; color: var(--dark); }
         input { padding: 10px; border: 2px solid #bdc3c7; border-radius: 6px; font-size: 15px; font-weight: bold; }
         .btn-main { background: var(--primary); color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; height: 43px; margin-top: auto; }
-        .btn-action { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 13px; margin-right: 10px; }
         .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
         .signal-card-bullish { background-color: #fdf2f2 !important; border-left: 8px solid var(--success); }
@@ -51,7 +50,6 @@
         th { background: #eaeded; color: var(--dark); }
         .loading { text-align: center; font-size: 18px; color: #7f8c8d; display: none; padding: 20px; font-weight: bold; }
         .highlight { font-weight: bold; font-size: 1.2em; }
-        .desc-box { font-size: 12px; color: #7f8c8d; line-height: 1.6; background: #fcfcfc; padding: 15px; border-radius: 6px; border: 1px dashed #bdc3c7; margin-top: 15px; }
     </style>
 </head>
 <body>
@@ -59,12 +57,11 @@
 <div class="container">
     <header>
         <h1>台股均線排列與動態振幅策略決訊與回測系統</h1>
-        <p>🤖 脫離第三方伺服器・直連金融大數據核心優化版</p>
+        <p>📈 GitHub Pages 雲端直連實戰版</p>
     </header>
 
     <div class="shortcut-bar">
         <span class="shortcut-title">📊 快速觀測通道：</span>
-        <button class="btn-shortcut" onclick="quickSelect('^TWII')">加權指數 (大盤)</button>
         <button class="btn-shortcut" onclick="quickSelect('2330')">2330 台積電</button>
         <button class="btn-shortcut" onclick="quickSelect('2317')">2317 鴻海</button>
         <button class="btn-shortcut" onclick="quickSelect('2454')">2454 聯發科</button>
@@ -93,18 +90,18 @@
         <div style="display: flex; justify-content: flex-end;">
             <button class="btn-main" onclick="analyzeTaiwanStock()">即時計算策略數據</button>
         </div>
-        <div id="loading" class="loading">正在直連 Yahoo 財經雲端獲取 K 線數據並運行回測引擎，請稍候...</div>
+        <div id="loading" class="loading">正在直連開放金融庫獲取真實台股 K 線數據，請稍候...</div>
     </div>
 
     <div id="report-section" style="display: none;">
         <div class="card" id="signal-card">
-            <h3>第二步：台股當日策略決策與風控模型</h3>
+            <h3>當日策略決策與風控模型</h3>
             <div id="strategy-signal" class="signal-box"></div>
             
             <div class="nav-light-container">
                 <div id="nav-step-safe" class="nav-light-step">🟢 安全蓄勢區<br>(未達目標價)</div>
                 <div id="nav-step-target" class="nav-light-step">🔥 利潤首要滿足點<br>(建議分批落袋 1/3)</div>
-                <div id="nav-step-moon" class="nav-light-step">🚀 瘋狂主升飆股區<br>(啟動 5MA 移動停利)</div>
+                <div id="nav-step-moon" class="nav-light-step">🚀 瘋狂主升飆股區<br>(啟動移動停利)</div>
             </div>
 
             <div class="grid">
@@ -117,16 +114,10 @@
                     <p id="risk-data" style="line-height: 2; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 6px;"></p>
                 </div>
             </div>
-            
-            <div style="margin-top: 15px; border-top: 1px solid #d5dbdb; padding-top: 15px;">
-                <button class="btn-action" style="background-color: #27ae60;" onclick="copyStrategyToClipboard()">📋 一鍵複製今日決策</button>
-            </div>
         </div>
 
         <div class="card backtest-card">
             <h3>🤖 本策略歷史波段回測報告（近 4 個月大數據模擬）</h3>
-            <p style="font-size: 13px; color: #34495e; margin: 0;">網頁自動以過去 4 個月的日 K 線，完全依照本風控模型的「多頭進場、跌破停損、觸及移動停利」之邏輯進行實戰演練：</p>
-            
             <div class="backtest-summary-grid">
                 <div class="backtest-stat-box">
                     <div style="font-size: 12px; color: #7f8c8d; font-weight: bold;">總交易波段次數</div>
@@ -154,20 +145,13 @@
             <div id="backtest-log" class="backtest-log">暫無回測軌跡。</div>
         </div>
 
-        <div class="desc-box">
-            <b>💡 動態風控與回測說明：</b><br>
-            • <b>回測邏輯：</b> 系統採用個股真實日 K 線模擬。首度出現多頭排列時以收盤價進場，若價格未摸到目標價前跌破原始停損，視為失敗；若成功衝過預期停利點，則自動啟動「移動停利防守線」每日上推，直到收盤跌破才獲利出場。
-        </div>
-
         <div class="card">
-            <div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 10px;">
-                <h3 style="margin: 0;">第三步：最近 5 日台股行情與真實振幅明細表</h3>
-            </div>
+            <h3 style="margin: 0 0 10px 0;">最近 5 日台股真實行情明細表</h3>
             <table id="details-table">
                 <thead>
                     <tr>
                         <th>日期</th>
-                        <th>收盤價/點</th>
+                        <th>收盤價</th>
                         <th>最高價</th>
                         <th>最低價</th>
                         <th>單日振幅 (高-低)</th>
@@ -181,269 +165,6 @@
     </div>
 </div>
 
-<script>
-var globalReportData = {};
-
-function calculateSMA(data, idx, period) {
-    if (idx < period - 1) return null;
-    var sum = 0;
-    for (var i = 0; i < period; i++) { sum += data[idx - i]; }
-    return Number((sum / period).toFixed(2));
-}
-
-function quickSelect(code) {
-    document.getElementById("stock-code").value = code;
-    analyzeTaiwanStock();
-}
-
-// 🌐 核心大改版：採用無敵的 JSONP 直連引擎，完全繞過 CORS 代理
-function jsonpFetch(url) {
-    return new Promise(function(resolve, reject) {
-        var callbackName = "yahoo_jsonp_" + Math.round(100000 * Math.random());
-        window[callbackName] = function(data) {
-            delete window[callbackName];
-            document.body.removeChild(script);
-            resolve(data);
-        };
-        var script = document.createElement("script");
-        script.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "callback=" + callbackName;
-        script.onerror = function() {
-            delete window[callbackName];
-            document.body.removeChild(script);
-            reject(new Error("Yahoo 連線失敗，請檢查網路或股票代碼是否正確。"));
-        };
-        document.body.appendChild(script);
-    });
-}
-
-function runBacktest(validData, maShortPeriod, maLongPeriod, paramN) {
-    var trades = [];
-    var currentTrade = null;
-    var logHTML = "";
-
-    var closeArr = validData.map(function(d) { return d.close; });
-    var maShortArr = [];
-    var maLongArr = [];
-    for (var i = 0; i < validData.length; i++) {
-        maShortArr.push(calculateSMA(closeArr, i, maShortPeriod));
-        maLongArr.push(calculateSMA(closeArr, i, maLongPeriod));
-    }
-
-    for (var i = maLongPeriod; i < validData.length; i++) {
-        var today = validData[i];
-        var yesterday = validData[i - 1];
-        var todayAmp = Number((today.high - today.low).toFixed(2));
-
-        var isBullishToday = today.close > maShortArr[i] && maShortArr[i] > maLongArr[i];
-        var isBullishYesterday = yesterday.close > maShortArr[i-1] && maShortArr[i-1] > maLongArr[i-1];
-
-        if (!currentTrade) {
-            if (isBullishToday && !isBullishYesterday) {
-                currentTrade = {
-                    entryDate: today.date,
-                    entryPrice: today.close,
-                    stopLoss: Number((today.close - (todayAmp * paramN)).toFixed(2)),
-                    takeProfit: Number((today.close + (todayAmp * paramN * 2)).toFixed(2)),
-                    hasHitTarget: false,
-                    maxCloseAfterTarget: today.close,
-                    trailingStop: Number((today.close - (todayAmp * paramN)).toFixed(2))
-                };
-                logHTML += "🟢 <b>[" + today.date + "]</b> 滿足強勢多頭排列，模擬以收盤價 <b>" + today.close + "</b> 元進場（初始防守：" + currentTrade.stopLoss + " 元 / 目標點：" + currentTrade.takeProfit + " 元）<br>";
-            }
-        } else {
-            if (!currentTrade.hasHitTarget) {
-                if (today.high >= currentTrade.takeProfit) {
-                    currentTrade.hasHitTarget = true;
-                    currentTrade.maxCloseAfterTarget = Math.max(today.close, currentTrade.entryPrice);
-                    var trailOpt = Number((today.close - todayAmp).toFixed(2));
-                    currentTrade.trailingStop = Math.max(trailOpt, maShortArr[i] || 0);
-                    logHTML += "🎯 <b>[" + today.date + "]</b> 價格成功衝破目標價 " + currentTrade.takeProfit + " 元！<b>啟動移動停利機制</b>，防守點拉高上移至 <b>" + currentTrade.trailingStop + "</b> 元，讓利潤奔跑。<br>";
-                }
-            } else {
-                if (today.close > currentTrade.maxCloseAfterTarget) {
-                    currentTrade.maxCloseAfterTarget = today.close;
-                    var trailOpt = Number((today.close - todayAmp).toFixed(2));
-                    var newTrail = Math.max(trailOpt, maShortArr[i] || 0);
-                    if (newTrail > currentTrade.trailingStop) {
-                        currentTrade.trailingStop = newTrail;
-                    }
-                }
-            }
-
-            if (!currentTrade.hasHitTarget) {
-                if (today.close < currentTrade.stopLoss) {
-                    var pnlPercent = Number(((today.close - currentTrade.entryPrice) / currentTrade.entryPrice * 100).toFixed(2));
-                    logHTML += "❌ <b>[" + today.date + "]</b> 收盤跌破原始停損點 " + currentTrade.stopLoss + " 元，風控出場。模擬損益：<span style=\"color:var(--success); font-weight:bold;\">" + pnlPercent + "%</span><br>----------------------------------<br>";
-                    currentTrade.exitDate = today.date;
-                    currentTrade.exitPrice = today.close;
-                    currentTrade.pnl = pnlPercent;
-                    currentTrade.result = "LOSS";
-                    trades.push(currentTrade);
-                    currentTrade = null;
-                }
-            } else {
-                if (today.close < currentTrade.trailingStop) {
-                    var pnlPercent = Number(((today.close - currentTrade.entryPrice) / currentTrade.entryPrice * 100).toFixed(2));
-                    logHTML += "🚀 <b>[" + today.date + "]</b> 收盤跌破移動停利防守線 " + currentTrade.trailingStop + " 元，獲利全數落袋結清！波段模擬報酬：<span style=\"color:var(--success); font-weight:bold;\">+" + pnlPercent + "%</span><br>----------------------------------<br>";
-                    currentTrade.exitDate = today.date;
-                    currentTrade.exitPrice = today.close;
-                    currentTrade.pnl = pnlPercent;
-                    currentTrade.result = "WIN";
-                    trades.push(currentTrade);
-                    currentTrade = null;
-                }
-            }
-        }
-    }
-
-    if (currentTrade) {
-        var pnlPercent = Number(((validData[validData.length-1].close - currentTrade.entryPrice) / currentTrade.entryPrice * 100).toFixed(2));
-        logHTML += "⏳ <b>[" + validData[validData.length-1].date + " 續抱中]</b> 截至今日部位仍在場內運行中。目前防守價：<b>" + currentTrade.trailingStop + "</b> 元，未實現波段回測損益：+" + pnlPercent + "%<br>";
-    }
-
-    if (trades.length === 0 && !currentTrade) {
-        logHTML = "⚠️ 該標的在過去 4 個月內，無任何首度突破且滿足多頭排列的波段進場訊號。";
-    }
-
-    var total = trades.length;
-    var wins = trades.filter(function(t) { return t.result === "WIN"; }).length;
-    var losses = trades.filter(function(t) { return t.result === "LOSS"; }).length;
-    var winRate = total > 0 ? Number((wins / total * 100).toFixed(1)) : 0;
-    var totalProfit = trades.reduce(function(sum, t) { return sum + t.pnl; }, 0);
-
-    return {
-        total: total, wins: wins, losses: losses, winRate: winRate, 
-        totalProfit: Number(totalProfit.toFixed(2)), 
-        logHTML: logHTML
-    };
-}
-
-async function analyzeTaiwanStock() {
-    var stockId = document.getElementById('stock-code').value.trim().toUpperCase();
-    if (!stockId) { alert('請輸入有效的台股代碼！'); return; }
-
-    var paramN = parseFloat(document.getElementById('param-n').value) || 2;
-    var maShortPeriod = parseInt(document.getElementById('param-ma-short').value) || 5;
-    var maLongPeriod = parseInt(document.getElementById('param-ma-long').value) || 20;
-
-    document.getElementById("th-ma-short").innerText = maShortPeriod + "日均線";
-    document.getElementById("th-ma-long").innerText = maLongPeriod + "日均線";
-
-    var loading = document.getElementById('loading');
-    var report = document.getElementById('report-section');
-    
-    loading.style.display = 'block';
-    report.style.display = 'none';
-
-    var ticker = stockId.indexOf('^') !== -1 ? stockId : stockId + ".TW";
-    // 改用 Yahoo JSONP 專用端點
-    var yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/" + ticker + "?range=4mo&interval=1d";
-
-    try {
-        var json = await jsonpFetch(yahooUrl);
-        
-        if (!json.chart || !json.chart.result || !json.chart.result[0]) {
-            throw new Error('代碼錯誤或查無此標的行情');
-        }
-
-        var result = json.chart.result[0];
-        var timestamps = result.timestamp;
-        var closes = result.indicators.quote[0].close;
-        var highs = result.indicators.quote[0].high;
-        var lows = result.indicators.quote[0].low;
-
-        var validData = [];
-        for (var i = 0; i < closes.length; i++) {
-            if (closes[i] !== null && highs[i] !== null && lows[i] !== null) {
-                var dateObj = new Date(timestamps[i] * 1000);
-                var dateString = dateObj.getFullYear() + "-" + String(dateObj.getMonth()+1).padStart(2,'0') + "-" + String(dateObj.getDate()).padStart(2,'0');
-                validData.push({
-                    date: dateString,
-                    close: Number(closes[i].toFixed(2)),
-                    high: Number(highs[i].toFixed(2)),
-                    low: Number(lows[i].toFixed(2))
-                });
-            }
-        }
-
-        if (validData.length < maLongPeriod) throw new Error("數據量不足");
-
-        var len = validData.length;
-        var closeArr = validData.map(function(d) { return d.close; });
-
-        var currentClose = validData[len - 1].close;
-        var currentHigh = validData[len - 1].high;
-        var currentLow = validData[len - 1].low;
-        var currentAmplitude = Number((currentHigh - currentLow).toFixed(2)); 
-
-        var maShort = calculateSMA(closeArr, len - 1, maShortPeriod);
-        var maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
-
-        var isBullish = false;
-        if (maShort && maLong) { isBullish = currentClose > maShort && maShort > maLong; }
-
-        var stopLoss = Number((currentClose - (currentAmplitude * paramN)).toFixed(2));
-        var takeProfit = Number((currentClose + (currentAmplitude * paramN * 2)).toFixed(2));
-
-        var trailingStopPrice = stopLoss; 
-        var navigationStatus = "SAFE";    
-        var adviceText = "";
-
-        if (currentClose >= takeProfit) {
-            var trailOption1 = Number((currentClose - currentAmplitude).toFixed(2));
-            trailingStopPrice = Math.max(trailOption1, maShort || 0);
-            
-            if (currentClose > (takeProfit * 1.1)) {
-                navigationStatus = "MOON";
-                adviceText = "🔥 【飆股續抱提示】價格已遠超波段預期！多頭動能極強，請完全採用「今日實戰防守價（移動停利）」，收盤未跌破前，讓利潤無限制狂飆！";
-            } else {
-                navigationStatus = "TARGET";
-                adviceText = "🎯 【獲利滿足提示】價格已成功觸及目標區！建議可先分批落袋 1/3 鎖定利潤。其餘持股已自動啟動「移動停利機制」，抱緊博取更大波段！";
-            }
-        } else {
-            navigationStatus = "SAFE";
-            adviceText = isBullish ? "🟢 均線呈多頭排列，目前屬於安全蓄勢上漲區，未達目標價前請安心持股，緊盯原始動態停損點即可。" : "⚖️ 趨勢偏弱或處於盤整震盪，未滿足進場訊號，建議保持觀望。";
-        }
-
-        var btResult = runBacktest(validData, maShortPeriod, maLongPeriod, paramN);
-
-        globalReportData = {
-            stockId: stockId, currentClose: currentClose, maShort: maShort, maLong: maLong, currentAmplitude: currentAmplitude, stopLoss: stopLoss, takeProfit: takeProfit, isBullish: isBullish, paramN: paramN,
-            trailingStopPrice: trailingStopPrice, navigationStatus: navigationStatus, adviceText: adviceText,
-            historyRows: validData.slice(-5).reverse(), 
-            maShortPeriod: maShortPeriod, maLongPeriod: maLongPeriod, closeArr: closeArr, len: len
-        };
-
-        loading.style.display = 'none';
-        report.style.display = 'block';
-
-        document.getElementById("bt-total").innerText = btResult.total + " 次";
-        document.getElementById("bt-wins").innerText = btResult.wins + " 次";
-        document.getElementById("bt-losses").innerText = btResult.losses + " 次";
-        document.getElementById("bt-winrate").innerText = btResult.winRate + " %";
-        
-        var profitBox = document.getElementById("bt-profit");
-        if(btResult.totalProfit >= 0) {
-            profitBox.innerText = "+" + btResult.totalProfit + " %";
-            profitBox.style.color = "var(--success)";
-        } else {
-            profitBox.innerText = btResult.totalProfit + " %";
-            profitBox.style.color = "var(--danger)";
-        }
-        document.getElementById("backtest-log").innerHTML = btResult.logHTML;
-
-        document.getElementById("nav-step-safe").className = "nav-light-step" + (navigationStatus === "SAFE" ? " active-safe" : "");
-        document.getElementById("nav-step-target").className = "nav-light-step" + (navigationStatus === "TARGET" ? " active-target" : "");
-        document.getElementById("nav-step-moon").className = "nav-light-step" + (navigationStatus === "MOON" ? " active-moon" : "");
-
-        var signalCard = document.getElementById('signal-card');
-        var strategySignal = document.getElementById('strategy-signal');
-
-        if (isBullish) {
-            signalCard.className = "card signal-card-bullish";
-            strategySignal.className = "signal-box text-bullish";
-            strategySignal.innerText = "🚀 強勢多頭排列：價格 > MA" + maShortPeriod + " > MA" + maLongPeriod;
-        } else {
-            signalCard.className = "card signal-card-neutral";
-            strategySignal.className = "signal-box";
-            strategySignal.style.color = "#7f8c8
+<script src="app.js"></script>
+</body>
+</html>
