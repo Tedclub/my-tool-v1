@@ -58,7 +58,7 @@
 
 <div class="container">
     <header>
-        <h1>台股均線排列與動態振幅策略決策工具</h1>
+        <h1>台股均線排列與動態振幅策略決訊與回測系統</h1>
         <p>三通道自動盲切防線・🤖內建波段移動停利回測引擎・核心效能進化版</p>
     </header>
 
@@ -160,7 +160,7 @@
         </div>
 
         <div class="card">
-            <div style="display: flex; justify-content: flex- Lawrence; align-items: center; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 10px;">
                 <h3 style="margin: 0;">第三步：最近 5 日台股行情與真實振幅明細表</h3>
             </div>
             <table id="details-table">
@@ -213,9 +213,13 @@ async function fetchWithFallback(ticker) {
             var rawJson = await res2.json();
             return JSON.parse(rawJson.contents);
         } catch (e2) {
-            var res3 = await fetch(route3);
-            if (!res3.ok) throw new Error("R3 Fail");
-            return await res3.json();
+            try {
+                var res3 = await fetch(route3);
+                if (!res3.ok) throw new Error("R3 Fail");
+                return await res3.json();
+            } catch (e3) {
+                throw new Error("All Channels Down");
+            }
         }
     }
 }
@@ -360,4 +364,74 @@ async function analyzeTaiwanStock() {
                 var dateObj = new Date(timestamps[i] * 1000);
                 var dateString = dateObj.getFullYear() + "-" + String(dateObj.getMonth()+1).padStart(2,'0') + "-" + String(dateObj.getDate()).padStart(2,'0');
                 validData.push({
-                    date: date
+                    date: dateString,
+                    close: Number(closes[i].toFixed(2)),
+                    high: Number(highs[i].toFixed(2)),
+                    low: Number(lows[i].toFixed(2))
+                });
+            }
+        }
+
+        if (validData.length < maLongPeriod) throw new Error("數據量不足");
+
+        var len = validData.length;
+        var closeArr = validData.map(function(d) { return d.close; });
+
+        var currentClose = validData[len - 1].close;
+        var currentHigh = validData[len - 1].high;
+        var currentLow = validData[len - 1].low;
+        var currentAmplitude = Number((currentHigh - currentLow).toFixed(2)); 
+
+        var maShort = calculateSMA(closeArr, len - 1, maShortPeriod);
+        var maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
+
+        var isBullish = false;
+        if (maShort && maLong) { isBullish = currentClose > maShort && maShort > maLong; }
+
+        var stopLoss = Number((currentClose - (currentAmplitude * paramN)).toFixed(2));
+        var takeProfit = Number((currentClose + (currentAmplitude * paramN * 2)).toFixed(2));
+
+        var trailingStopPrice = stopLoss; 
+        var navigationStatus = "SAFE";    
+        var adviceText = "";
+
+        if (currentClose >= takeProfit) {
+            var trailOption1 = Number((currentClose - currentAmplitude).toFixed(2));
+            trailingStopPrice = Math.max(trailOption1, maShort || 0);
+            
+            if (currentClose > (takeProfit * 1.1)) {
+                navigationStatus = "MOON";
+                adviceText = "🔥 【飆股續抱提示】價格已遠超波段預期！多頭動能極強，請完全採用「今日實戰防守價（移動停利）」，收盤未跌破前，讓利潤無限制狂飆！";
+            } else {
+                navigationStatus = "TARGET";
+                adviceText = "🎯 【獲利滿足提示】價格已成功觸及目標區！建議可先分批落袋 1/3 鎖定利潤。其餘持股已自動啟動「移動停利機制」，抱緊博取更大波段！";
+            }
+        } else {
+            navigationStatus = "SAFE";
+            adviceText = isBullish ? "🟢 均線呈多頭排列，目前屬於安全蓄勢上漲區，未達目標價前請安心持股，緊盯原始動態停損點即可。" : "⚖️ 趨勢偏弱或處於盤整震盪，未滿足進場訊號，建議保持觀望。";
+        }
+
+        var btResult = runBacktest(validData, maShortPeriod, maLongPeriod, paramN);
+
+        globalReportData = {
+            stockId: stockId, currentClose: currentClose, maShort: maShort, maLong: maLong, currentAmplitude: currentAmplitude, stopLoss: stopLoss, takeProfit: takeProfit, isBullish: isBullish, paramN: paramN,
+            trailingStopPrice: trailingStopPrice, navigationStatus: navigationStatus, adviceText: adviceText,
+            historyRows: validData.slice(-5).reverse(), 
+            maShortPeriod: maShortPeriod, maLongPeriod: maLongPeriod, closeArr: closeArr, len: len
+        };
+
+        loading.style.display = 'none';
+        report.style.display = 'block';
+
+        document.getElementById("bt-total").innerText = btResult.total + " 次";
+        document.getElementById("bt-wins").innerText = btResult.wins + " 次";
+        document.getElementById("bt-losses").innerText = btResult.losses + " 次";
+        document.getElementById("bt-winrate").innerText = btResult.winRate + " %";
+        
+        var profitBox = document.getElementById("bt-profit");
+        if(btResult.totalProfit >= 0) {
+            profitBox.innerText = "+" + btResult.totalProfit + " %";
+            profitBox.style.color = "var(--success)";
+        } else {
+            profitBox.innerText = btResult.totalProfit + " %";
+            profitBox.style.color =
