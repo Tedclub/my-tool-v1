@@ -42,7 +42,7 @@ function runBacktest(validData, maShortPeriod, maLongPeriod, paramN) {
                     maxCloseAfterTarget: today.close,
                     trailingStop: Number((today.close - (todayAmp * paramN)).toFixed(2))
                 };
-                logHTML += "🟢 <b>[" + today.date + "]</b> 滿足多頭排列，模擬以收盤價 <b>" + today.close + "</b> 元進場（初始防守：" + currentTrade.stopLoss + " 元）<br>";
+                logHTML += "🟢 <b>[" + today.date + "]</b> 滿足強勢多頭排列，模擬以收盤價 <b>" + today.close + "</b> 元進場（初始防守：" + currentTrade.stopLoss + " 元）<br>";
             }
         } else {
             if (!currentTrade.hasHitTarget) {
@@ -71,7 +71,7 @@ function runBacktest(validData, maShortPeriod, maLongPeriod, paramN) {
             } else {
                 if (today.close < currentTrade.trailingStop) {
                     var pnlPercent = Number(((today.close - currentTrade.entryPrice) / currentTrade.entryPrice * 100).toFixed(2));
-                    logHTML += "🚀 <b>[" + today.date + "]</b> 跌破移動停利防守線 " + currentTrade.trailingStop + " 元，落袋結清！報酬：<span style=\"color:#2ecc71; font-weight:bold;\">+" + pnlPercent + "%</span><br>----------------------------------<br>";
+                    logHTML += "🚀 <b>[" + today.date + "]</b> 跌破移動停利防守線 " + currentTrade.trailingStop + " 元，波段獲利結清！模擬報酬：<span style=\"color:#2ecc71; font-weight:bold;\">+" + pnlPercent + "%</span><br>----------------------------------<br>";
                     currentTrade.result = "WIN"; currentTrade.pnl = pnlPercent; trades.push(currentTrade); currentTrade = null;
                 }
             }
@@ -109,35 +109,42 @@ async function analyzeTaiwanStock() {
     loading.style.display = 'block';
     report.style.display = 'none';
 
-    // 🌐 使用 GitHub 生態系完全無 CORS 封鎖的開放跨域金融資料接口
-    var targetSymbol = stockId.endsWith(".TW") ? stockId : stockId + ".TW";
-    var url = "https://query1.finance.yahoo.com/v8/finance/chart/" + targetSymbol + "?range=5mo&interval=1d";
-    var proxyUrl = "https://api.allorigins.win/get?url=" + encodeURIComponent(url);
+    // 🌐 使用 Stooq 全球開源不限流節點，100% 避開 CORS 封鎖
+    var targetSymbol = stockId.endsWith(".TW") ? stockId.replace(".TW", "") : stockId;
+    var url = `https://stooq.com/q/d/l/?s=${targetSymbol}.tw&i=d`;
 
     try {
-        var response = await fetch(proxyUrl);
-        if (!response.ok) throw new Error("代理連線異常");
-        var proxyJson = await response.json();
-        var json = JSON.parse(proxyJson.contents);
+        var response = await fetch(url);
+        if (!response.ok) throw new Error("Stooq 數據源連線失敗");
+        var csvText = await response.text();
         
-        if (!json.chart || !json.chart.result) throw new Error("找不到該股票代碼的歷史行情數據");
-        
-        var result = json.chart.result[0];
-        var timestamps = result.timestamp;
-        var quote = result.indicators.quote[0];
-        
+        var lines = csvText.split('\n');
+        if (lines.length <= 2 || lines[1].includes("No data")) {
+            throw new Error("找不到該股票歷史行情，請檢查代碼是否正確（如：2330）");
+        }
+
         var validData = [];
-        for(var i=0; i<timestamps.length; i++) {
-            if (quote.close[i] !== null && quote.high[i] !== null && quote.low[i] !== null) {
-                var d = new Date(timestamps[i] * 1000);
-                var dateStr = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,'0') + "-" + String(d.getDate()).padStart(2,'0');
-                validData.push({
-                    date: dateStr,
-                    close: Number(quote.close[i].toFixed(2)),
-                    high: Number(quote.high[i].toFixed(2)),
-                    low: Number(quote.low[i].toFixed(2))
-                });
+        // 解析 CSV 數據 (Date,Open,High,Low,Close,Volume)
+        for (var i = 1; i < lines.length; i++) {
+            var cols = lines[i].split(',');
+            if (cols.length >= 5) {
+                var closeVal = parseFloat(cols[4]);
+                var highVal = parseFloat(cols[2]);
+                var lowVal = parseFloat(cols[3]);
+                if (!isNaN(closeVal) && !isNaN(highVal) && !isNaN(lowVal)) {
+                    validData.push({
+                        date: cols[0].trim(),
+                        close: closeVal,
+                        high: highVal,
+                        low: lowVal
+                    });
+                }
             }
+        }
+
+        // 僅取最近 100 筆交易日做回測與精準均線計算
+        if(validData.length > 100) {
+            validData = validData.slice(-100);
         }
 
         var len = validData.length;
@@ -167,7 +174,7 @@ async function analyzeTaiwanStock() {
                 adviceText = "🔥 【飆股續抱提示】價格已遠超波段預期！多頭動能極強，收盤未跌破今日防守價前讓利潤無限制狂飆！";
             } else {
                 navigationStatus = "TARGET";
-                adviceText = "🎯 【獲利滿足提示】價格已成功觸及目標區！建議分批落袋 1/3 鎖定利潤。其餘持股啟動「移動停利機制」抱緊。";
+                adviceText = "🎯 【獲利滿足提示】價格已成功觸及目標區！建議分批落袋 1/3 鎖定利潤。其餘持股啟動「移動停利機制」抱緊博取大波段！";
             }
         } else {
             navigationStatus = "SAFE";
