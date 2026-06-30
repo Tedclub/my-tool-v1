@@ -59,7 +59,7 @@
 <div class="container">
     <header>
         <h1>台股均線排列與動態振幅策略決訊與回測系統</h1>
-        <p>三通道自動盲切防線・🤖內建波段移動停利回測引擎・核心效能進化版</p>
+        <p>🤖 脫離第三方伺服器・直連金融大數據核心優化版</p>
     </header>
 
     <div class="shortcut-bar">
@@ -93,7 +93,7 @@
         <div style="display: flex; justify-content: flex-end;">
             <button class="btn-main" onclick="analyzeTaiwanStock()">即時計算策略數據</button>
         </div>
-        <div id="loading" class="loading">正在穿透高效能安全三通道下載 K 線數據並運行回測引擎，請稍候...</div>
+        <div id="loading" class="loading">正在直連 Yahoo 財經雲端獲取 K 線數據並運行回測引擎，請稍候...</div>
     </div>
 
     <div id="report-section" style="display: none;">
@@ -155,8 +155,8 @@
         </div>
 
         <div class="desc-box">
-            <b>💡 三通道數據安全盾牌與回測說明：</b><br>
-            • <b>回測邏輯：</b> 系統採用逐日歷史 K 線模擬。首度出現多頭排列時盤後買進，若價格在未摸到目標價前跌破原始停損，視為失敗；若成功衝過預期停利點，則自動啟動「移動停利防守線」一路往上推，直到收盤跌破才獲利出場。
+            <b>💡 動態風控與回測說明：</b><br>
+            • <b>回測邏輯：</b> 系統採用個股真實日 K 線模擬。首度出現多頭排列時以收盤價進場，若價格未摸到目標價前跌破原始停損，視為失敗；若成功衝過預期停利點，則自動啟動「移動停利防守線」每日上推，直到收盤跌破才獲利出場。
         </div>
 
         <div class="card">
@@ -196,32 +196,24 @@ function quickSelect(code) {
     analyzeTaiwanStock();
 }
 
-async function fetchWithFallback(ticker) {
-    var yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/" + ticker + "?range=4mo&interval=1d";
-    var route1 = "https://corsproxy.io/?" + encodeURIComponent(yahooUrl);
-    var route2 = "https://api.allorigins.win/get?url=" + encodeURIComponent(yahooUrl);
-    var route3 = "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(yahooUrl);
-
-    try {
-        var res = await fetch(route1);
-        if (!res.ok) throw new Error("R1 Fail");
-        return await res.json();
-    } catch (e1) {
-        try {
-            var res2 = await fetch(route2);
-            if (!res2.ok) throw new Error("R2 Fail");
-            var rawJson = await res2.json();
-            return JSON.parse(rawJson.contents);
-        } catch (e2) {
-            try {
-                var res3 = await fetch(route3);
-                if (!res3.ok) throw new Error("R3 Fail");
-                return await res3.json();
-            } catch (e3) {
-                throw new Error("All Channels Down");
-            }
-        }
-    }
+// 🌐 核心大改版：採用無敵的 JSONP 直連引擎，完全繞過 CORS 代理
+function jsonpFetch(url) {
+    return new Promise(function(resolve, reject) {
+        var callbackName = "yahoo_jsonp_" + Math.round(100000 * Math.random());
+        window[callbackName] = function(data) {
+            delete window[callbackName];
+            document.body.removeChild(script);
+            resolve(data);
+        };
+        var script = document.createElement("script");
+        script.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "callback=" + callbackName;
+        script.onerror = function() {
+            delete window[callbackName];
+            document.body.removeChild(script);
+            reject(new Error("Yahoo 連線失敗，請檢查網路或股票代碼是否正確。"));
+        };
+        document.body.appendChild(script);
+    });
 }
 
 function runBacktest(validData, maShortPeriod, maLongPeriod, paramN) {
@@ -344,9 +336,11 @@ async function analyzeTaiwanStock() {
     report.style.display = 'none';
 
     var ticker = stockId.indexOf('^') !== -1 ? stockId : stockId + ".TW";
+    // 改用 Yahoo JSONP 專用端點
+    var yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/" + ticker + "?range=4mo&interval=1d";
 
     try {
-        var json = await fetchWithFallback(ticker);
+        var json = await jsonpFetch(yahooUrl);
         
         if (!json.chart || !json.chart.result || !json.chart.result[0]) {
             throw new Error('代碼錯誤或查無此標的行情');
@@ -434,4 +428,22 @@ async function analyzeTaiwanStock() {
             profitBox.style.color = "var(--success)";
         } else {
             profitBox.innerText = btResult.totalProfit + " %";
-            profitBox.style.color =
+            profitBox.style.color = "var(--danger)";
+        }
+        document.getElementById("backtest-log").innerHTML = btResult.logHTML;
+
+        document.getElementById("nav-step-safe").className = "nav-light-step" + (navigationStatus === "SAFE" ? " active-safe" : "");
+        document.getElementById("nav-step-target").className = "nav-light-step" + (navigationStatus === "TARGET" ? " active-target" : "");
+        document.getElementById("nav-step-moon").className = "nav-light-step" + (navigationStatus === "MOON" ? " active-moon" : "");
+
+        var signalCard = document.getElementById('signal-card');
+        var strategySignal = document.getElementById('strategy-signal');
+
+        if (isBullish) {
+            signalCard.className = "card signal-card-bullish";
+            strategySignal.className = "signal-box text-bullish";
+            strategySignal.innerText = "🚀 強勢多頭排列：價格 > MA" + maShortPeriod + " > MA" + maLongPeriod;
+        } else {
+            signalCard.className = "card signal-card-neutral";
+            strategySignal.className = "signal-box";
+            strategySignal.style.color = "#7f8c8
