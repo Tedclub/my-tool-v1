@@ -17,65 +17,41 @@
         }
         body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background: #f0f3f4; margin: 0; padding: 20px; color: #333; }
         .container { max-width: 1100px; margin: 0 auto; }
-        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; transition: background-color 0.3s ease; }
+        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
         header { text-align: center; border-bottom: 3px solid var(--primary); padding-bottom: 15px; margin-bottom: 25px; }
-        
         .shortcut-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; background: #ebedef; padding: 12px; border-radius: 8px; align-items: center; }
         .shortcut-title { font-weight: bold; font-size: 14px; color: var(--dark); }
-        .btn-shortcut { background: white; border: 1px solid #bdc3c7; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: bold; transition: 0.2s; }
+        .btn-shortcut { background: white; border: 1px solid #bdc3c7; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: bold; }
         .btn-shortcut:hover { background: var(--primary); color: white; }
-        
-        .history-box { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; min-height: 25px; align-items: center; }
-        .btn-history { background: #e5e8e8; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #5d6d7e; }
-        .btn-history:hover { background: #d5dbdb; color: #2c3e50; }
-
         .control-grid { display: grid; grid-template-columns: 1fr; gap: 15px; margin-bottom: 15px; }
         @media (min-width: 768px) { .control-grid { grid-template-columns: 2fr 1fr 1fr 1fr; } }
-        
         .input-group { display: flex; flex-direction: column; }
         .input-group label { font-size: 13px; font-weight: bold; margin-bottom: 5px; color: var(--dark); }
         input { padding: 10px; border: 2px solid #bdc3c7; border-radius: 6px; font-size: 15px; font-weight: bold; }
-        input:focus { border-color: var(--primary); outline: none; }
-        
-        .btn-main { background: var(--primary); color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; height: 43px; margin-top: auto; }
-        .btn-main:hover { background: var(--dark); }
-        .btn-action { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 13px; margin-right: 10px; transition: 0.2s; }
-        .btn-action:hover { opacity: 0.9; }
-
+        .btn-main { background: var(--primary); color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; height: 43px; margin-top: auto; }
+        .btn-action { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 13px; margin-right: 10px; }
         .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
-
         .signal-card-bullish { background-color: #fdf2f2 !important; border-left: 8px solid var(--success); }
         .signal-card-neutral { background-color: #f2f4f4 !important; border-left: 8px solid #7f8c8d; }
-
         .signal-box { font-size: 24px; font-weight: bold; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 20px; }
         .text-bullish { color: var(--success) !important; font-weight: bold; }
-        .text-warning { color: var(--warning) !important; font-weight: bold; }
-
         .nav-light-container { display: flex; background: #e5e8e8; border-radius: 6px; margin: 15px 0; overflow: hidden; font-size: 13px; font-weight: bold; text-align: center; }
-        .nav-light-step { flex: 1; padding: 10px 5px; color: #7f8c8d; background: #ebedef; transition: 0.3s; }
+        .nav-light-step { flex: 1; padding: 10px 5px; color: #7f8c8d; background: #ebedef; }
         .nav-light-step.active-safe { background: #d5f5e3; color: #196f3d; border-bottom: 4px solid var(--danger); }
         .nav-light-step.active-target { background: #fdebd0; color: #b9770e; border-bottom: 4px solid var(--warning); }
-        .nav-light-step.active-moon { background: #fadbd8; color: #78281f; border-bottom: 4px solid var(--success); font-size: 14px; animation: pulse 2s infinite; }
-
+        .nav-light-step.active-moon { background: #fadbd8; color: #78281f; border-bottom: 4px solid var(--success); font-size: 14px; }
         .backtest-card { background-color: var(--backtest-bg) !important; border: 1px solid var(--backtest-border); border-left: 8px solid #2980b9; }
         .backtest-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin: 15px 0; }
         .backtest-stat-box { background: white; padding: 12px; border-radius: 6px; text-align: center; border: 1px solid #d4e6f1; }
         .backtest-stat-val { font-size: 20px; font-weight: bold; color: #2980b9; margin-top: 5px; }
         .backtest-log { max-height: 180px; overflow-y: auto; background: #fff; border: 1px solid #d4e6f1; padding: 12px; border-radius: 6px; font-size: 12px; line-height: 1.6; color: #566573; }
-
         table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; background: white; }
         th, td { padding: 12px; text-align: center; border-bottom: 1px solid #e5e8e8; }
         th { background: #eaeded; color: var(--dark); }
         .loading { text-align: center; font-size: 18px; color: #7f8c8d; display: none; padding: 20px; font-weight: bold; }
         .highlight { font-weight: bold; font-size: 1.2em; }
         .desc-box { font-size: 12px; color: #7f8c8d; line-height: 1.6; background: #fcfcfc; padding: 15px; border-radius: 6px; border: 1px dashed #bdc3c7; margin-top: 15px; }
-        
-        @keyframes pulse {
-            0% { opacity: 0.9; }
-            50% { opacity: 1; background: #f9d5d5; }
-            100% { opacity: 0.9; }
-        }
     </style>
 </head>
 <body>
@@ -99,7 +75,7 @@
         <div class="control-grid">
             <div class="input-group">
                 <label for="stock-code">股票代號</label>
-                <input type="text" id="stock-code" value="2330" placeholder="例如: 2330">
+                <input type="text" id="stock-code" value="2330">
             </div>
             <div class="input-group">
                 <label for="param-n">風控乘數 N 倍</label>
@@ -114,10 +90,7 @@
                 <input type="number" id="param-ma-long" value="20" min="5">
             </div>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div class="history-box" id="history-box">
-                <span style="font-size: 12px; font-weight: bold; color: #7f8c8d;">最近查詢：</span>
-            </div>
+        <div style="display: flex; justify-content: flex-end;">
             <button class="btn-main" onclick="analyzeTaiwanStock()">即時計算策略數據</button>
         </div>
         <div id="loading" class="loading">正在穿透高效能安全三通道下載 K 線數據並運行回測引擎，請稍候...</div>
@@ -183,14 +156,12 @@
 
         <div class="desc-box">
             <b>💡 三通道數據安全盾牌與回測說明：</b><br>
-            • <b>回測邏輯：</b> 系統採用逐日歷史 K 線模擬。首度出現多頭排列時盤後買進，若價格在未摸到目標價前跌破原始停損，視為失敗；若成功衝過預期停利點，則自動啟動「移動停利防守線」一路往上推，直到收盤跌破才獲利出場。<br>
-            • <b>數據獲取：</b> 整合 `Corsproxy.io`、`AllOrigins` 及 `Codetabs` 三組獨立的跨國高頻網域解鎖通道，無感切換防止看盤中斷。
+            • <b>回測邏輯：</b> 系統採用逐日歷史 K 線模擬。首度出現多頭排列時盤後買進，若價格在未摸到目標價前跌破原始停損，視為失敗；若成功衝過預期停利點，則自動啟動「移動停利防守線」一路往上推，直到收盤跌破才獲利出場。
         </div>
 
         <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: flex- Lawrence; align-items: center; margin-bottom: 10px;">
                 <h3 style="margin: 0;">第三步：最近 5 日台股行情與真實振幅明細表</h3>
-                <button class="btn-action" onclick="exportToCSV()">📥 匯出 5 日數據 CSV</button>
             </div>
             <table id="details-table">
                 <thead>
@@ -213,38 +184,11 @@
 <script>
 var globalReportData = {};
 
-document.addEventListener("DOMContentLoaded", function() {
-    renderHistoryTags();
-});
-
 function calculateSMA(data, idx, period) {
     if (idx < period - 1) return null;
     var sum = 0;
     for (var i = 0; i < period; i++) { sum += data[idx - i]; }
     return Number((sum / period).toFixed(2));
-}
-
-function saveToHistory(stockId) {
-    var history = JSON.parse(localStorage.getItem("tw_stock_history")) || [];
-    if (!history.includes(stockId)) {
-        history.unshift(stockId);
-        if (history.length > 5) history.pop();
-        localStorage.setItem("tw_stock_history", JSON.stringify(history));
-        renderHistoryTags();
-    }
-}
-
-function renderHistoryTags() {
-    var history = JSON.parse(localStorage.getItem("tw_stock_history")) || [];
-    var box = document.getElementById("history-box");
-    box.innerHTML = '<span style="font-size: 12px; font-weight: bold; color: #7f8c8d;">最近查詢：</span>';
-    if (history.length === 0) {
-        box.innerHTML += '<span style="font-size:12px; color:#bdc3c7;">暫無紀錄</span>';
-        return;
-    }
-    history.forEach(function(code) {
-        box.innerHTML += '<button class="btn-history" onclick="quickSelect(\'' + code + '\')">' + code + '</button> ';
-    });
 }
 
 function quickSelect(code) {
@@ -255,4 +199,165 @@ function quickSelect(code) {
 async function fetchWithFallback(ticker) {
     var yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/" + ticker + "?range=4mo&interval=1d";
     var route1 = "https://corsproxy.io/?" + encodeURIComponent(yahooUrl);
-    var route2 = "https://api
+    var route2 = "https://api.allorigins.win/get?url=" + encodeURIComponent(yahooUrl);
+    var route3 = "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(yahooUrl);
+
+    try {
+        var res = await fetch(route1);
+        if (!res.ok) throw new Error("R1 Fail");
+        return await res.json();
+    } catch (e1) {
+        try {
+            var res2 = await fetch(route2);
+            if (!res2.ok) throw new Error("R2 Fail");
+            var rawJson = await res2.json();
+            return JSON.parse(rawJson.contents);
+        } catch (e2) {
+            var res3 = await fetch(route3);
+            if (!res3.ok) throw new Error("R3 Fail");
+            return await res3.json();
+        }
+    }
+}
+
+function runBacktest(validData, maShortPeriod, maLongPeriod, paramN) {
+    var trades = [];
+    var currentTrade = null;
+    var logHTML = "";
+
+    var closeArr = validData.map(function(d) { return d.close; });
+    var maShortArr = [];
+    var maLongArr = [];
+    for (var i = 0; i < validData.length; i++) {
+        maShortArr.push(calculateSMA(closeArr, i, maShortPeriod));
+        maLongArr.push(calculateSMA(closeArr, i, maLongPeriod));
+    }
+
+    for (var i = maLongPeriod; i < validData.length; i++) {
+        var today = validData[i];
+        var yesterday = validData[i - 1];
+        var todayAmp = Number((today.high - today.low).toFixed(2));
+
+        var isBullishToday = today.close > maShortArr[i] && maShortArr[i] > maLongArr[i];
+        var isBullishYesterday = yesterday.close > maShortArr[i-1] && maShortArr[i-1] > maLongArr[i-1];
+
+        if (!currentTrade) {
+            if (isBullishToday && !isBullishYesterday) {
+                currentTrade = {
+                    entryDate: today.date,
+                    entryPrice: today.close,
+                    stopLoss: Number((today.close - (todayAmp * paramN)).toFixed(2)),
+                    takeProfit: Number((today.close + (todayAmp * paramN * 2)).toFixed(2)),
+                    hasHitTarget: false,
+                    maxCloseAfterTarget: today.close,
+                    trailingStop: Number((today.close - (todayAmp * paramN)).toFixed(2))
+                };
+                logHTML += "🟢 <b>[" + today.date + "]</b> 滿足強勢多頭排列，模擬以收盤價 <b>" + today.close + "</b> 元進場（初始防守：" + currentTrade.stopLoss + " 元 / 目標點：" + currentTrade.takeProfit + " 元）<br>";
+            }
+        } else {
+            if (!currentTrade.hasHitTarget) {
+                if (today.high >= currentTrade.takeProfit) {
+                    currentTrade.hasHitTarget = true;
+                    currentTrade.maxCloseAfterTarget = Math.max(today.close, currentTrade.entryPrice);
+                    var trailOpt = Number((today.close - todayAmp).toFixed(2));
+                    currentTrade.trailingStop = Math.max(trailOpt, maShortArr[i] || 0);
+                    logHTML += "🎯 <b>[" + today.date + "]</b> 價格成功衝破目標價 " + currentTrade.takeProfit + " 元！<b>啟動移動停利機制</b>，防守點拉高上移至 <b>" + currentTrade.trailingStop + "</b> 元，讓利潤奔跑。<br>";
+                }
+            } else {
+                if (today.close > currentTrade.maxCloseAfterTarget) {
+                    currentTrade.maxCloseAfterTarget = today.close;
+                    var trailOpt = Number((today.close - todayAmp).toFixed(2));
+                    var newTrail = Math.max(trailOpt, maShortArr[i] || 0);
+                    if (newTrail > currentTrade.trailingStop) {
+                        currentTrade.trailingStop = newTrail;
+                    }
+                }
+            }
+
+            if (!currentTrade.hasHitTarget) {
+                if (today.close < currentTrade.stopLoss) {
+                    var pnlPercent = Number(((today.close - currentTrade.entryPrice) / currentTrade.entryPrice * 100).toFixed(2));
+                    logHTML += "❌ <b>[" + today.date + "]</b> 收盤跌破原始停損點 " + currentTrade.stopLoss + " 元，風控出場。模擬損益：<span style=\"color:var(--success); font-weight:bold;\">" + pnlPercent + "%</span><br>----------------------------------<br>";
+                    currentTrade.exitDate = today.date;
+                    currentTrade.exitPrice = today.close;
+                    currentTrade.pnl = pnlPercent;
+                    currentTrade.result = "LOSS";
+                    trades.push(currentTrade);
+                    currentTrade = null;
+                }
+            } else {
+                if (today.close < currentTrade.trailingStop) {
+                    var pnlPercent = Number(((today.close - currentTrade.entryPrice) / currentTrade.entryPrice * 100).toFixed(2));
+                    logHTML += "🚀 <b>[" + today.date + "]</b> 收盤跌破移動停利防守線 " + currentTrade.trailingStop + " 元，獲利全數落袋結清！波段模擬報酬：<span style=\"color:var(--success); font-weight:bold;\">+" + pnlPercent + "%</span><br>----------------------------------<br>";
+                    currentTrade.exitDate = today.date;
+                    currentTrade.exitPrice = today.close;
+                    currentTrade.pnl = pnlPercent;
+                    currentTrade.result = "WIN";
+                    trades.push(currentTrade);
+                    currentTrade = null;
+                }
+            }
+        }
+    }
+
+    if (currentTrade) {
+        var pnlPercent = Number(((validData[validData.length-1].close - currentTrade.entryPrice) / currentTrade.entryPrice * 100).toFixed(2));
+        logHTML += "⏳ <b>[" + validData[validData.length-1].date + " 續抱中]</b> 截至今日部位仍在場內運行中。目前防守價：<b>" + currentTrade.trailingStop + "</b> 元，未實現波段回測損益：+" + pnlPercent + "%<br>";
+    }
+
+    if (trades.length === 0 && !currentTrade) {
+        logHTML = "⚠️ 該標的在過去 4 個月內，無任何首度突破且滿足多頭排列的波段進場訊號。";
+    }
+
+    var total = trades.length;
+    var wins = trades.filter(function(t) { return t.result === "WIN"; }).length;
+    var losses = trades.filter(function(t) { return t.result === "LOSS"; }).length;
+    var winRate = total > 0 ? Number((wins / total * 100).toFixed(1)) : 0;
+    var totalProfit = trades.reduce(function(sum, t) { return sum + t.pnl; }, 0);
+
+    return {
+        total: total, wins: wins, losses: losses, winRate: winRate, 
+        totalProfit: Number(totalProfit.toFixed(2)), 
+        logHTML: logHTML
+    };
+}
+
+async function analyzeTaiwanStock() {
+    var stockId = document.getElementById('stock-code').value.trim().toUpperCase();
+    if (!stockId) { alert('請輸入有效的台股代碼！'); return; }
+
+    var paramN = parseFloat(document.getElementById('param-n').value) || 2;
+    var maShortPeriod = parseInt(document.getElementById('param-ma-short').value) || 5;
+    var maLongPeriod = parseInt(document.getElementById('param-ma-long').value) || 20;
+
+    document.getElementById("th-ma-short").innerText = maShortPeriod + "日均線";
+    document.getElementById("th-ma-long").innerText = maLongPeriod + "日均線";
+
+    var loading = document.getElementById('loading');
+    var report = document.getElementById('report-section');
+    
+    loading.style.display = 'block';
+    report.style.display = 'none';
+
+    var ticker = stockId.indexOf('^') !== -1 ? stockId : stockId + ".TW";
+
+    try {
+        var json = await fetchWithFallback(ticker);
+        
+        if (!json.chart || !json.chart.result || !json.chart.result[0]) {
+            throw new Error('代碼錯誤或查無此標的行情');
+        }
+
+        var result = json.chart.result[0];
+        var timestamps = result.timestamp;
+        var closes = result.indicators.quote[0].close;
+        var highs = result.indicators.quote[0].high;
+        var lows = result.indicators.quote[0].low;
+
+        var validData = [];
+        for (var i = 0; i < closes.length; i++) {
+            if (closes[i] !== null && highs[i] !== null && lows[i] !== null) {
+                var dateObj = new Date(timestamps[i] * 1000);
+                var dateString = dateObj.getFullYear() + "-" + String(dateObj.getMonth()+1).padStart(2,'0') + "-" + String(dateObj.getDate()).padStart(2,'0');
+                validData.push({
+                    date: date
