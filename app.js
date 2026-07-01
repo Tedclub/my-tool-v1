@@ -64,13 +64,13 @@ async function analyzeTaiwanStock() {
         
         if (!resData.data || resData.data.length === 0) throw new Error("查無此股票代碼或今日未開盤");
 
-        // 🎯【欄位精準修正】對接 FinMind 的真實欄位：max 與 min
+        // 🎯 欄位精準對接 FinMind
         var validData = resData.data.map(function(item) {
             return {
                 date: item.date,
                 close: parseFloat(item.close),
-                high: parseFloat(item.max), // 修正：精準對接大寫或小寫 max
-                low: parseFloat(item.min)   // 修正：精準對接大寫或小寫 min
+                high: parseFloat(item.max), 
+                low: parseFloat(item.min)   
             };
         });
 
@@ -97,25 +97,41 @@ async function analyzeTaiwanStock() {
         var maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
         var isBullish = (maShort && maLong) ? (currentClose > maShort && maShort > maLong) : false;
 
-        // 風控價位推算
+        // 🔥 經典實用風控價位推算（加入利潤滿足點與瘋漲區臨界值）
         var stopLoss = Number((currentClose - (R * paramN)).toFixed(2));
-        var takeProfit = Number((currentClose + (R * paramN * 2)).toFixed(2));
+        var takeProfit = Number((currentClose + (R * paramN * 2)).toFixed(2)); // 2倍風控空間 = 2R 預期目標
 
         var trailingStopPrice = stopLoss; 
-        var navigationStatus = "SAFE";    
-        var adviceText = isBullish ? `🟢 均線呈多頭排列。系統已動態偵測近 ${maShortPeriod} 日跳空與盤中波幅，鎖定真實 R 值為 ${R} 元。` : "⚖️ 趨勢偏弱或盤整，未滿足強勢多頭進場訊號。";
+        var statusHtml = '';
+        var adviceText = '';
 
+        // 🎯 經典三燈號與提醒判定邏輯
         if (currentClose >= takeProfit) {
+            // 狀態 2：利潤首要滿足點 (衝破 2R 預期目標區)
             var trailOption1 = Number((currentClose - R).toFixed(2));
             trailingStopPrice = Math.max(trailOption1, maShort || 0);
-            navigationStatus = "TARGET";
-            adviceText = "🎯 【獲利滿足提示】價格已成功衝破 2R 預期目標區！建議先獲利了結 1/3，剩餘部位開啟移動停利。";
+            
+            statusHtml = `<div style="background-color: #ffeaa7; padding: 15px; border-radius: 8px; font-weight: bold; text-align: center; color: #d63031; border: 2px solid #fdcb6e; margin-bottom: 15px;">🔥 利潤首要滿足點 (建議分批落袋 1/3)</div>`;
+            adviceText = `🎯 <b>【獲利滿足提示】</b> 價格已成功衝破 2R 預期目標區 (${takeProfit} 元)！建議採取強勢防守，剩餘部位開啟移動停利。`;
+            
+            if (isBullish && currentClose > (maShort * 1.08)) {
+                // 狀態 3：瘋狂主升飆股區 (乖離率大於 8% 且多頭排列)
+                statusHtml = `<div style="background-color: #ffcbdb; padding: 15px; border-radius: 8px; font-weight: bold; text-align: center; color: #c0392b; border: 2px solid #e74c3c; margin-bottom: 15px;">🚀 瘋狂主升飆股區 (啟動 ${maShortPeriod}MA 移動停利)</div>`;
+                adviceText = `⚡ <b>【飆股區加速提示】</b> 股價已進入瘋漲高乖離區！防守線強制綁定短天數均線 (${maShort} 元) 或前日低點，牢牢抱緊直到跌破再離場。`;
+                trailingStopPrice = Math.max(trailingStopPrice, maShort || 0);
+            }
+        } else {
+            // 狀態 1：安全蓄勢區 (未達標)
+            statusHtml = `<div style="background-color: #dff9fb; padding: 15px; border-radius: 8px; font-weight: bold; text-align: center; color: #0984e3; border: 2px solid #74b9ff; margin-bottom: 15px;">🟢 安全蓄勢區 (未達目標價)</div>`;
+            adviceText = isBullish 
+                ? `📈 均線呈強勢多頭排列。目前屬於安全蓄勢上漲區，未達 2R 目標價前請安心持股，緊盯原始動態停損點即可。`
+                : `⚖️ 趨勢偏弱、進入盤整或回檔。目前未滿足強勢多頭進場訊號，請謹慎觀望。`;
         }
 
         if(loading) loading.style.display = 'none';
         if(report) report.style.display = 'block';
 
-        // 渲染畫面數據
+        // 渲染左邊：數據面板
         document.getElementById('technical-data').innerHTML = 
             '• <b>當前真實收盤價：</b> <span class="highlight text-bullish">' + currentClose + '</span> 元<br>' +
             '• <b>' + maShortPeriod + '日均線價位：</b> ' + (maShort ? maShort + ' 元' : '計算中...') + '<br>' +
@@ -123,14 +139,16 @@ async function analyzeTaiwanStock() {
             '• <b>今日單日真實 TR：</b> ' + todayTrueRange + ' 元<br>' +
             '• <b>🔥 操作週期採計：' + maShortPeriod + ' 日平均真實波幅 (R)：</b> <span class="text-bullish" style="font-weight:bold;">' + R + '</span> 元';
 
+        // 渲染右邊：風控面板 (完美塞入經典提醒編排)
         document.getElementById('risk-data').innerHTML = 
-            '• <b>風控乘數 (N)：</b> ' + paramN + ' 倍<br>' +
-            '• <b>原始動態停損價：</b> <b>' + stopLoss + ' 元</b><br>' +
-            '• <b>波段預期停利點：</b> <span class="text-danger" style="font-weight:bold;">' + takeProfit + ' 元</span><br>' +
+            statusHtml + // 注入最實用的動態彩色狀態大燈號
+            '• <b>設定風控倍數 (N)：</b> ' + paramN + ' 倍<br>' +
+            '• <b>原始動態停損價：</b> <b>' + stopLoss + ' 元</b> (剛進場防守線)<br>' +
+            '• <b>波段利潤滿足點 (2R)：</b> <span class="text-danger" style="font-weight:bold;">' + takeProfit + ' 元</span> (1:2 盈虧比目標)<br>' +
             '<div style="margin-top:10px; padding-top:10px; border-top:2px dashed #bdc3c7;">' +
             '• <b>🚨 今日實戰防守價：</b> <span class="text-bullish highlight" style="font-size:1.4em;">' + trailingStopPrice + ' 元</span><br>' +
             '</div>' +
-            '<div style="margin-top:10px; font-size:13px; font-weight:bold; color:#2c3e50; background:#f8f9fa; padding:8px; border-radius:4px;">' + adviceText + '</div>';
+            '<div style="margin-top:12px; font-size:13px; line-height: 1.5; color:#2c3e50; background:#f8f9fa; padding:10px; border-radius:6px; border-left: 4px solid #1abc9c;">' + adviceText + '</div>';
 
     } catch (e) {
         if(loading) loading.style.display = 'none';
