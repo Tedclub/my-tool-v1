@@ -3,460 +3,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>台股個股策略決策與動態風控儀表板 - 三通道終極版</title>
+    <title>動態風控與移動停利導航儀</title>
     <style>
-        :root {
-            --primary: #2c3e50;
-            --success: #e74c3c; 
-            --danger: #2ecc71;  
-            --dark: #34495e;
-            --light: #f8f9fa;
-            --warning: #f39c12;
-        }
-        body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background: #f0f3f4; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 1100px; margin: 0 auto; }
-        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; transition: background-color 0.3s ease; }
-        header { text-align: center; border-bottom: 3px solid var(--primary); padding-bottom: 15px; margin-bottom: 25px; }
-        
-        .shortcut-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; background: #ebedef; padding: 12px; border-radius: 8px; align-items: center; }
-        .shortcut-title { font-weight: bold; font-size: 14px; color: var(--dark); }
-        .btn-shortcut { background: white; border: 1px solid #bdc3c7; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: bold; transition: 0.2s; }
-        .btn-shortcut:hover { background: var(--primary); color: white; }
-        
-        .history-box { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; min-height: 25px; align-items: center; }
-        .btn-history { background: #e5e8e8; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #5d6d7e; }
-        .btn-history:hover { background: #d5dbdb; color: #2c3e50; }
-
-        .control-grid { display: grid; grid-template-columns: 1fr; gap: 15px; margin-bottom: 15px; }
-        @media (min-width: 768px) { .control-grid { grid-template-columns: 2fr 1fr 1fr 1fr; } }
-        
-        .input-group { display: flex; flex-direction: column; }
-        .input-group label { font-size: 13px; font-weight: bold; margin-bottom: 5px; color: var(--dark); }
-        input { padding: 10px; border: 2px solid #bdc3c7; border-radius: 6px; font-size: 15px; font-weight: bold; }
-        input:focus { border-color: var(--primary); outline: none; }
-        
-        .btn-main { background: var(--primary); color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; height: 43px; margin-top: auto; }
-        .btn-main:hover { background: var(--dark); }
-        .btn-action { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 13px; margin-right: 10px; transition: 0.2s; }
-        .btn-action:hover { opacity: 0.9; }
-
-        .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
-
-        .signal-card-bullish { background-color: #fdf2f2 !important; border-left: 8px solid var(--success); }
-        .signal-card-neutral { background-color: #f2f4f4 !important; border-left: 8px solid #7f8c8d; }
-
-        .signal-box { font-size: 24px; font-weight: bold; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 20px; }
-        .text-bullish { color: var(--success) !important; font-weight: bold; }
-        .text-warning { color: var(--warning) !important; font-weight: bold; }
-
-        .nav-light-container { display: flex; background: #e5e8e8; border-radius: 6px; margin: 15px 0; overflow: hidden; font-size: 13px; font-weight: bold; text-align: center; }
-        .nav-light-step { flex: 1; padding: 10px 5px; color: #7f8c8d; background: #ebedef; transition: 0.3s; }
-        .nav-light-step.active-safe { background: #d5f5e3; color: #196f3d; border-bottom: 4px solid var(--danger); }
-        .nav-light-step.active-target { background: #fdebd0; color: #b9770e; border-bottom: 4px solid var(--warning); }
-        .nav-light-step.active-moon { background: #fadbd8; color: #78281f; border-bottom: 4px solid var(--success); font-size: 14px; animation: pulse 2s infinite; }
-
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; background: white; }
-        th, td { padding: 12px; text-align: center; border-bottom: 1px solid #e5e8e8; }
-        th { background: #eaeded; color: var(--dark); }
-        .loading { text-align: center; font-size: 18px; color: #7f8c8d; display: none; padding: 20px; font-weight: bold; }
-        .highlight { font-weight: bold; font-size: 1.2em; }
-        .desc-box { font-size: 12px; color: #7f8c8d; line-height: 1.6; background: #fcfcfc; padding: 15px; border-radius: 6px; border: 1px dashed #bdc3c7; margin-top: 15px; }
-        
-        @keyframes pulse {
-            0% { opacity: 0.9; }
-            50% { opacity: 1; background: #f9d5d5; }
-            100% { opacity: 0.9; }
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        h1 { text-align: center; color: #e74c3c; font-size: 24px; margin-bottom: 25px; }
+        .input-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px; background: #f8f9fa; padding: 20px; border-radius: 8px; }
+        .input-box { display: flex; flex-direction: column; }
+        .input-box label { font-size: 13px; font-weight: bold; margin-bottom: 6px; color: #34495e; }
+        .input-box input { padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+        button { background: #1abc9c; color: #fff; border: none; padding: 12px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; width: 100%; transition: background 0.2s; }
+        button:hover { background: #16a085; }
+        #loading { display: none; text-align: center; font-weight: bold; color: #e67e22; margin: 20px 0; }
+        #report-section { display: none; margin-top: 25px; }
+        .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media(max-width: 768px) { .report-grid { grid-template-columns: 1fr; } }
+        .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
+        .card h3 { margin-top: 0; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px; color: #2c3e50; font-size: 16px; }
+        .highlight { font-size: 20px; font-weight: bold; }
+        .text-bullish { color: #e74c3c; }
+        .text-danger { color: #e74c3c; }
+        .quick-links { margin-top: 15px; font-size: 13px; }
+        .quick-btn { background: #ebdcb9; color: #333; border: none; padding: 4px 8px; margin-right: 5px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .quick-btn:hover { background: #dfceaa; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <header>
-        <h1>台股均線排列與動態振幅策略決策工具</h1>
-        <p>三道代理自動盲切防線・動態移動停利・核心效能全面進化</p>
-    </header>
-
-    <div class="shortcut-bar">
-        <span class="shortcut-title">📊 快速觀測通道：</span>
-        <button class="btn-shortcut" onclick="quickSelect('^TWII')">加權指數 (大盤)</button>
-        <button class="btn-shortcut" onclick="quickSelect('2330')">2330 台積電</button>
-        <button class="btn-shortcut" onclick="quickSelect('2317')">2317 鴻海</button>
-        <button class="btn-shortcut" onclick="quickSelect('2454')">2454 聯發科</button>
-        <button class="btn-shortcut" onclick="quickSelect('2344')">2344 華邦電</button>
+    <h1>🚀 強勢多頭排列防守導航儀</h1>
+    
+    <div class="input-group">
+        <div class="input-box">
+            <label>股票/代碼</label>
+            <input type="text" id="stock-code" value="2344" placeholder="例如: 2344">
+            <div class="quick-links">
+                <button type="button" class="quick-btn" onclick="quickSelect('2344')">華邦電</button>
+                <button type="button" class="quick-btn" onclick="quickSelect('2337')">旺宏</button>
+            </div>
+        </div>
+        <div class="input-box">
+            <label>風控乘數 (Param N)</label>
+            <input type="number" id="param-n" value="2" step="0.1">
+        </div>
+        <div class="input-box">
+            <label>短均線天數 (R採計週期)</label>
+            <input type="number" id="param-ma-short" value="5">
+        </div>
+        <div class="input-box">
+            <label>長均線天數</label>
+            <input type="number" id="param-ma-long" value="20">
+        </div>
     </div>
 
-    <div class="card">
-        <div class="control-grid">
-            <div class="input-group">
-                <label for="stock-code">股票代號</label>
-                <input type="text" id="stock-code" value="2330" placeholder="例如: 2330">
-            </div>
-            <div class="input-group">
-                <label for="param-n">風控乘數 N 倍</label>
-                <input type="number" id="param-n" value="2" step="0.1" min="0.5">
-            </div>
-            <div class="input-group">
-                <label for="param-ma-short">短均線天數</label>
-                <input type="number" id="param-ma-short" value="5" min="2">
-            </div>
-            <div class="input-group">
-                <label for="param-ma-long">長均線天數</label>
-                <input type="number" id="param-ma-long" value="20" min="5">
-            </div>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div class="history-box" id="history-box">
-                <span style="font-size: 12px; font-weight: bold; color: #7f8c8d;">最近查詢：</span>
-            </div>
-            <button class="btn-main" onclick="analyzeTaiwanStock()">即時計算策略數據</button>
-        </div>
-        <div id="loading" class="loading">正在穿透高效能安全三通道下載 K 線數據，請稍候...</div>
-    </div>
+    <button onclick="analyzeTaiwanStock()">🎯 開始動態風控計算</button>
 
-    <div id="report-section" style="display: none;">
-        <div class="card" id="signal-card">
-            <h3>第二步：台股策略決策與風控模型</h3>
-            <div id="strategy-signal" class="signal-box"></div>
+    <div id="loading">📡 正在直連雲端後端抓取歷史 K 線數據...</div>
+
+    <div id="report-section" class="report-section">
+        <div class="report-grid">
             
-            <div class="nav-light-container">
-                <div id="nav-step-safe" class="nav-light-step">🟢 安全蓄勢區<br>(未達目標價)</div>
-                <div id="nav-step-target" class="nav-light-step">🔥 利潤首要滿足點<br>(建議分批落袋 1/3)</div>
-                <div id="nav-step-moon" class="nav-light-step">🚀 瘋狂主升飆股區<br>(啟動 5MA 移動停利)</div>
+            <div class="card">
+                <h3>📊 均線排列與週期振幅數據</h3>
+                <div id="technical-data" style="line-height: 2;">
+                    </div>
             </div>
 
-            <div class="grid">
-                <div>
-                    <h4>📊 均線排列與單日振幅數據</h4>
-                    <p id="technical-data" style="line-height: 2;"></p>
-                </div>
-                <div>
-                    <h4>💼 動態風控與移動停利導航面板</h4>
-                    <p id="risk-data" style="line-height: 2; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 6px;"></p>
-                </div>
+            <div class="card">
+                <h3>💼 動態風控與移動停利導航面板</h3>
+                <div id="risk-data" style="line-height: 2;">
+                    </div>
             </div>
-            
-            <div style="margin-top: 15px; border-top: 1px solid #d5dbdb; padding-top: 15px;">
-                <button class="btn-action" style="background-color: #27ae60;" onclick="copyStrategyToClipboard()">📋 一鍵複製今日決策</button>
-            </div>
-        </div>
 
-        <div class="desc-box">
-            <b>💡 三通道數據安全盾牌防線：</b><br>
-            • <b>數據獲取層：</b> 整合 `Corsproxy.io`、`AllOrigins` 及 `Codetabs` 三組獨立的跨國高頻網域解鎖通道。當其中一條線路發生壅塞、延遲或遭遇 Yahoo 防禦掐斷時，網頁會在背景微秒級自動切換至備用分流，直到取得正確財經大數據，確保看盤不卡頓。<br>
-            • <b>移動停利：</b> 價格成功上揚達標後會鎖死下限，並跟隨股價每天推升，收盤不破就抱緊。
-        </div>
-
-        <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h3 style="margin: 0;">第三步：最近 5 日台股行情與真實振幅明細表</h3>
-                <button class="btn-action" onclick="exportToCSV()">📥 匯出 5 日數據 CSV</button>
-            </div>
-            <table id="details-table">
-                <thead>
-                    <tr>
-                        <th>日期</th>
-                        <th>收盤價/點</th>
-                        <th>最高價</th>
-                        <th>最低價</th>
-                        <th>單日振幅 (高-低)</th>
-                        <th id="th-ma-short">5日均線</th>
-                        <th id="th-ma-long">20日均線</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
         </div>
     </div>
 </div>
 
-<script>
-let globalReportData = {};
-
-document.addEventListener("DOMContentLoaded", () => {
-    renderHistoryTags();
-});
-
-function calculateSMA(data, idx, period) {
-    if (idx < period - 1) return null;
-    let sum = 0;
-    for (let i = 0; i < period; i++) { sum += data[idx - i]; }
-    return Number((sum / period).toFixed(2));
-}
-
-function saveToHistory(stockId) {
-    let history = JSON.parse(localStorage.getItem("tw_stock_history")) || [];
-    if (!history.includes(stockId)) {
-        history.unshift(stockId);
-        if (history.length > 5) history.pop();
-        localStorage.setItem("tw_stock_history", JSON.stringify(history));
-        renderHistoryTags();
-    }
-}
-
-function renderHistoryTags() {
-    let history = JSON.parse(localStorage.getItem("tw_stock_history")) || [];
-    const box = document.getElementById("history-box");
-    box.innerHTML = '<span style="font-size: 12px; font-weight: bold; color: #7f8c8d;">最近查詢：</span>';
-    if (history.length === 0) {
-        box.innerHTML += '<span style="font-size:12px; color:#bdc3c7;">暫無紀錄</span>';
-        return;
-    }
-    history.forEach(code => {
-        box.innerHTML += `<button class="btn-history" onclick="quickSelect('${code}')">${code}</button> `;
-    });
-}
-
-function quickSelect(code) {
-    document.getElementById("stock-code").value = code;
-    analyzeTaiwanStock();
-}
-
-// 🛡️ 核心重構：三代理通道自動盲切容錯架構
-async function fetchWithFallback(ticker) {
-    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=4mo&interval=1d`;
-    
-    // 定義三條完全獨立、不同大廠架構的跨網域解鎖通道
-    const route1 = `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`;
-    const route2 = `https://api.allorigins.win/get?url=${encodeURIComponent(yahooUrl)}`;
-    const route3 = `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(yahooUrl)}`;
-
-    // 【第一道防線】
-    try {
-        const res = await fetch(route1);
-        if (!res.ok) throw new Error("R1 流量上限");
-        return await res.json();
-    } catch (e1) {
-        console.warn("⚠️ 第一通道壅塞，切換至第二道防線 (AllOrigins)...");
-        
-        // 【第二道防線】
-        try {
-            const res2 = await fetch(route2);
-            if (!res2.ok) throw new Error("R2 流量上限");
-            const rawJson = await res2.json();
-            return JSON.parse(rawJson.contents);
-        } catch (e2) {
-            console.warn("⚠️ 第二通道連線逾時，切換至終極第三道防線 (Codetabs)...");
-            
-            // 【第三道防線】
-            try {
-                const res3 = await fetch(route3);
-                if (!res3.ok) throw new Error("R3 流量上限");
-                return await res3.json();
-            } catch (e3) {
-                throw new Error("全球三道數據代理通道皆陷入極度癱瘓，請稍後再試。");
-            }
-        }
-    }
-}
-
-async function analyzeTaiwanStock() {
-    const stockId = document.getElementById('stock-code').value.trim().toUpperCase();
-    if (!stockId) { alert('請輸入有效的台股代碼！'); return; }
-
-    const paramN = parseFloat(document.getElementById('param-n').value) || 2;
-    const maShortPeriod = parseInt(document.getElementById('param-ma-short').value) || 5;
-    const maLongPeriod = parseInt(document.getElementById('param-ma-long').value) || 20;
-
-    document.getElementById("th-ma-short").innerText = `${maShortPeriod}日均線`;
-    document.getElementById("th-ma-long").innerText = `${maLongPeriod}日均線`;
-
-    const loading = document.getElementById('loading');
-    const report = document.getElementById('report-section');
-    
-    loading.style.display = 'block';
-    report.style.display = 'none';
-
-    const ticker = stockId.includes('^') ? stockId : `${stockId}.TW`;
-
-    try {
-        const json = await fetchWithFallback(ticker);
-        
-        if (!json.chart || !json.chart.result || !json.chart.result[0]) {
-            throw new Error('代碼錯誤或查無此標的行情');
-        }
-
-        const result = json.chart.result[0];
-        const timestamps = result.timestamp;
-        const closes = result.indicators.quote[0].close;
-        const highs = result.indicators.quote[0].high;
-        const lows = result.indicators.quote[0].low;
-
-        let validData = [];
-        for (let i = 0; i < closes.length; i++) {
-            if (closes[i] !== null && highs[i] !== null && lows[i] !== null) {
-                let dateObj = new Date(timestamps[i] * 1000);
-                let dateString = `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,'0')}-${String(dateObj.getDate()).padStart(2,'0')}`;
-                validData.push({
-                    date: dateString,
-                    close: Number(closes[i].toFixed(2)),
-                    high: Number(highs[i].toFixed(2)),
-                    low: Number(lows[i].toFixed(2))
-                });
-            }
-        }
-
-        if (validData.length < maLongPeriod) throw new Error(`數據量不足以計算 ${maLongPeriod} 日均線`);
-
-        const len = validData.length;
-        const closeArr = validData.map(d => d.close);
-
-        const currentClose = validData[len - 1].close;
-        const currentHigh = validData[len - 1].high;
-        const currentLow = validData[len - 1].low;
-        const currentAmplitude = Number((currentHigh - currentLow).toFixed(2)); 
-
-        const maShort = calculateSMA(closeArr, len - 1, maShortPeriod);
-        const maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
-
-        let isBullish = false;
-        if (maShort && maLong) { isBullish = currentClose > maShort && maShort > maLong; }
-
-        const stopLoss = Number((currentClose - (currentAmplitude * paramN)).toFixed(2));
-        const takeProfit = Number((currentClose + (currentAmplitude * paramN * 2)).toFixed(2));
-
-        let trailingStopPrice = stopLoss; 
-        let navigationStatus = "SAFE";    
-        let adviceText = "";
-
-        if (currentClose >= takeProfit) {
-            const trailOption1 = Number((currentClose - currentAmplitude).toFixed(2));
-            trailingStopPrice = Math.max(trailOption1, maShort || 0);
-            
-            if (currentClose > (takeProfit * 1.1)) {
-                navigationStatus = "MOON";
-                adviceText = "🔥 【飆股續抱提示】價格已遠超波段預期！多頭動能極強，請完全採用「今日實戰防守價（移動停利）」，收盤未跌破前，讓利潤無限制狂飆！";
-            } else {
-                navigationStatus = "TARGET";
-                adviceText = "🎯 【獲利滿足提示】價格已成功觸及目標區！建議可先分批落袋 1/3 鎖定利潤。其餘持股已自動啟動「移動停利機制」，抱緊博取更大波段！";
-            }
-        } else {
-            navigationStatus = "SAFE";
-            adviceText = isBullish ? "🟢 均線呈多頭排列，目前屬於安全蓄勢上漲區，未達目標價前請安心持股，緊盯原始動態停損點即可。" : "⚖️ 趨勢偏弱或處於盤整震盪，未滿足進場訊號，建議保持觀望。";
-        }
-
-        globalReportData = {
-            stockId, currentClose, maShort, maLong, currentAmplitude, stopLoss, takeProfit, isBullish, paramN,
-            trailingStopPrice, navigationStatus, adviceText,
-            historyRows: validData.slice(-5).reverse(), 
-            maShortPeriod, maLongPeriod, closeArr, len
-        };
-
-        if (!stockId.includes('^')) saveToHistory(stockId);
-
-        loading.style.display = 'none';
-        report.style.display = 'block';
-
-        document.getElementById("nav-step-safe").className = "nav-light-step" + (navigationStatus === "SAFE" ? " active-safe" : "");
-        document.getElementById("nav-step-target").className = "nav-light-step" + (navigationStatus === "TARGET" ? " active-target" : "");
-        document.getElementById("nav-step-moon").className = "nav-light-step" + (navigationStatus === "MOON" ? " active-moon" : "");
-
-        const signalCard = document.getElementById('signal-card');
-        const strategySignal = document.getElementById('strategy-signal');
-
-        if (isBullish) {
-            signalCard.className = "card signal-card-bullish";
-            strategySignal.className = "signal-box text-bullish";
-            strategySignal.innerText = `🚀 強勢多頭排列：價格 > MA${maShortPeriod} > MA${maLongPeriod}`;
-        } else {
-            signalCard.className = "card signal-card-neutral";
-            strategySignal.className = "signal-box";
-            strategySignal.style.color = "#7f8c8d";
-            strategySignal.innerText = `⚖️ 趨勢非多頭排列 (建議保持觀望)`;
-        }
-
-        document.getElementById('technical-data').innerHTML = `
-            • <b>當前收盤/點數：</b> <span class="highlight text-bullish">${currentClose}</span> 元/點<br>
-            • <b>${maShortPeriod}日均線價位：</b> <span class="${currentClose > maShort ? 'text-bullish' : ''}">${maShort}</span> 元<br>
-            • <b>${maLongPeriod}日均線價位：</b> ${maLong} 元<br>
-            • <b>當日真實振幅 (高-低)：</b> <span class="text-bullish">${currentAmplitude}</span> 元 (最高 ${currentHigh} / 最低 ${currentLow})
-        `;
-
-        let riskHTML = `
-            • <b>設定風控倍數 (N)：</b> ${paramN} 倍<br>
-            • <b>原始動態停損價：</b> <span style="color:#7f8c8d; font-weight:bold;">${stopLoss} 元</span> (剛進場防守線)<br>
-            • <b>波段預期停利點：</b> <span class="text-danger" style="font-weight:bold;">${takeProfit} 元</span> (1:2 盈虧比)<br>
-            <div style="margin-top:10px; padding-top:10px; border-top:2px dashed #bdc3c7;">
-                • <b>🚨 今日實戰防守價：</b> <span class="text-bullish highlight" style="font-size:1.4em;">${trailingStopPrice} 元</span><br>
-                <small style="color:#555; display:block; margin-top:4px;">💡 ${navigationStatus === 'SAFE' ? '價格尚未達標，採用原始停損守住本金。' : '<b>已啟動移動停利！</b> 盤後收盤價未跌破此防守價，持股就抱緊。'}</small>
-            </div>
-            <div style="margin-top:10px; font-size:13px; font-weight:bold; line-height:1.4; color:#2c3e50; background:#f8f9fa; padding:8px; border-radius:4px;">
-                ${adviceText}
-            </div>
-        `;
-        document.getElementById('risk-data').innerHTML = riskHTML;
-
-        const tbody = document.querySelector('#details-table tbody');
-        tbody.innerHTML = '';
-        
-        let displayRows = validData.slice(-5).reverse();
-        displayRows.forEach((row, i) => {
-            let actualIdx = (len - 1) - i;
-            let amp = Number((row.high - row.low).toFixed(2));
-            let mShort = calculateSMA(closeArr, actualIdx, maShortPeriod) || '-';
-            let mLong = calculateSMA(closeArr, actualIdx, maLongPeriod) || '-';
-            
-            tbody.innerHTML += `
-                <tr>
-                    <td>${row.date}</td>
-                    <td><b class="text-bullish">${row.close}</b></td>
-                    <td>${row.high}</td>
-                    <td>${row.low}</td>
-                    <td>${amp}</td>
-                    <td>${mShort}</td>
-                    <td>${mLong}</td>
-                </tr>
-            `;
-        });
-
-    } catch (error) {
-        loading.style.display = 'none';
-        alert('策略計算失敗，原因: ' + error.message);
-    }
-}
-
-function copyStrategyToClipboard() {
-    if (!globalReportData.stockId) return;
-    const d = globalReportData;
-    let zoneText = "安全蓄勢區";
-    if (d.navigationStatus === "TARGET") zoneText = "利潤滿足區 (分批停利)";
-    if (d.navigationStatus === "MOON") zoneText = "瘋狂主升飆股區 (利潤奔跑)";
-
-    const textToCopy = `【台股波段決策報告 - ${d.stockId}】\n今日收盤價：${d.currentClose} 元\n當前所處區域：${zoneText}\n單日真實振幅：${d.currentAmplitude} 元\n------------------------\n🛡️ 原始進場停損：${d.stopLoss} 元\n🎯 預期波段目標：${d.takeProfit} 元\n🚨 今日實戰防守價（移動停利）：${d.trailingStopPrice} 元\n\n💡 實戰指引：${d.adviceText.replace(/<[^>]*>/g, '')}`;
-    
-    navigator.clipboard.writeText(textToCopy).then(() => {
-        alert("📊 三防線高可用決策報告已成功複製！");
-    }).catch(err => {
-        alert("複製失敗: " + err);
-    });
-}
-
-function exportToCSV() {
-    if (!globalReportData.stockId) return;
-    const d = globalReportData;
-    let csvContent = "\uFEFF"; 
-    csvContent += `日期,收盤價,最高價,最低價,單日振幅,${d.maShortPeriod}日均線,${d.maLongPeriod}日均線\n`;
-    
-    d.historyRows.forEach((row, i) => {
-        let actualIdx = (d.len - 1) - i;
-        let amp = Number((row.high - row.low).toFixed(2));
-        let mShort = calculateSMA(d.closeArr, actualIdx, d.maShortPeriod) || '-';
-        let mLong = calculateSMA(d.closeArr, actualIdx, d.maLongPeriod) || '-';
-        csvContent += `${row.date},${row.close},${row.high},${row.low},${amp},${mShort},${mLong}\n`;
-    });
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `台股三防線策略_${d.stockId}_5日數據.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-</script>
-
+<script src="app.js"></script>
 </body>
 </html>
