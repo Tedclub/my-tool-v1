@@ -146,7 +146,7 @@ async function analyzeTaiwanStock() {
         var perfectPriceThreshold = Number((stopLoss * 1.04).toFixed(2)); 
         var buyDecisionHtml = '';
 
-        // 🟢 燈號控制核心
+        // 🟢 燈號控制核心（加入安全防護，避免因網頁無對應 id 導致程式碼卡死中斷）
         var s1 = document.getElementById('status-1');
         var s2 = document.getElementById('status-2');
         var s3 = document.getElementById('status-3');
@@ -219,32 +219,4 @@ async function analyzeTaiwanStock() {
         }
 
         if(loading) loading.style.display = 'none';
-        if(report) report.style.display = 'block';
-
-        // 🎯 完美注入動態「股票代碼 + 名稱」到卡片標題
-        document.getElementById('report-title-left').innerHTML = `📊 【${displayTitle}】均線與週期數據`;
-        document.getElementById('report-title-right').innerHTML = `💼 【${displayTitle}】動態風控導航面板`;
-
-        document.getElementById('technical-data').innerHTML = 
-            '• <b>當前真實收盤價：</b> <span class="text-bullish highlight">' + currentClose + '</span> 元<br>' +
-            '• <b>' + maShortPeriod + '日均線價位：</b> ' + (maShort ? maShort + ' 元' : '計算中...') + '<br>' +
-            '• <b>' + maLongPeriod + '日均線價位：</b> ' + (maLong ? maLong + ' 元' : '計算中...') + '<br>' +
-            '• <b>今日單日真實 TR：</b> ' + todayTrueRange + ' 元<br>' +
-            '• <b>🔥 操作週期採計：' + maShortPeriod + ' 日平均真實波幅 (R)：</b> <span class="text-bullish">' + R + '</span> 元';
-
-        document.getElementById('risk-data').innerHTML = 
-            '• <b>設定風控倍數 (N)：</b> ' + paramN + ' 倍<br>' +
-            '• <b>當前進場潛在風險：</b> <span style="color:#e67e22; font-weight:bold;">' + riskPercent + '%</span><br>' +
-            '• <b>原始動態停損價：</b> <b>' + stopLoss + ' 元</b> (剛進場防守線)<br>' +
-            '• <b>波段預期停利點：</b> <span class="text-danger"><b>' + takeProfit + ' 元</b></span> (1:2 盈虧比目標)<br>' +
-            '<div style="margin-top:10px; padding-top:10px; border-top:2px dashed #bdc3c7;">' +
-            '• <b>🚨 今日實戰防守價：</b> <span class="text-bullish" style="font-size:1.4em;">' + trailingStopPrice + ' 元</span><br>' +
-            '</div>' +
-            '<div style="margin-top:12px; font-size:13px; line-height: 1.5; color:#2c3e50; background:#f8f9fa; padding:10px; border-radius:6px; border-left: 4px solid #1abc9c;">' + adviceText + '</div>' +
-            buyDecisionHtml; // 🎯 只在此處最下方完美渲染智慧決策框
-
-    } catch (e) {
-        if(loading) loading.style.display = 'none';
-        alert('數據直連失敗: ' + e.message);
-    }
-}
+        if(report) report.
