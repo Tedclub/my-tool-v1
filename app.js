@@ -1,17 +1,14 @@
 // ==========================================
-// 🚨 診斷檢測點：只要檔案有被成功讀取，網頁一打開就絕對會彈窗！
+// 1. 初始化與歷史按鈕列
 // ==========================================
-alert("【診斷提示】app.js 已成功被網頁載入！");
-
 document.addEventListener("DOMContentLoaded", function() {
-    alert("【診斷提示】網頁結構載入完畢，開始初始化歷史按鈕。");
     initHistoryButtons();
 });
 
 function initHistoryButtons() {
     try {
-        var history = JSON.parse(localStorage.getItem('stock_history')) || [];
-        if (!history.includes('0050')) { history.unshift('0050'); }
+        var history = JSON.parse(localStorage.getItem('stock_history')) || ['0050'];
+        if (!history.includes('0050')) history.unshift('0050');
         localStorage.setItem('stock_history', JSON.stringify(history));
 
         var container = document.getElementById('history-tags');
@@ -22,8 +19,7 @@ function initHistoryButtons() {
                 btn.type = 'button';
                 btn.className = 'quick-btn';
                 btn.innerText = code === '0050' ? '0050 元大台灣50' : code;
-                btn.onclick = function(e) {
-                    if (e && e.preventDefault) e.preventDefault();
+                btn.onclick = function() {
                     var inputEl = document.getElementById("stock-code");
                     if (inputEl) {
                         inputEl.value = code;
@@ -34,7 +30,7 @@ function initHistoryButtons() {
             });
         }
     } catch (err) {
-        alert("歷史按鈕初始化崩潰: " + err.message);
+        console.error(err);
     }
 }
 
@@ -44,14 +40,17 @@ function saveToHistory(code) {
         var history = JSON.parse(localStorage.getItem('stock_history')) || ['0050'];
         history = history.filter(function(item) { return item !== code; });
         history.splice(1, 0, code);
-        if (history.length > 10) { history = history.slice(0, 10); }
+        if (history.length > 10) history = history.slice(0, 10);
         localStorage.setItem('stock_history', JSON.stringify(history));
         initHistoryButtons();
     } catch (err) {
-        console.error("儲存歷史紀錄失敗:", err);
+        console.error(err);
     }
 }
 
+// ==========================================
+// 2. 核心計算函式
+// ==========================================
 function calculateSMA(data, idx, period) {
     if (idx < period - 1) return null;
     var sum = 0;
@@ -79,46 +78,30 @@ function calculateTrueRangeAverage(validData, period) {
 }
 
 // ==========================================
-// 主控程式流程
+// 3. 主控程式流程（掛載在 window 確保 HTML 絕對抓得到）
 // ==========================================
-async function analyzeTaiwanStock() {
-    // 進入函式立刻彈窗，證明按鈕有成功叫到這個功能
-    alert("【診斷提示】成功點擊按鈕，開始執行計算流程！");
-
+window.analyzeTaiwanStock = async function() {
     var stockCodeEl = document.getElementById('stock-code');
-    if (!stockCodeEl) { alert('錯誤：找不到 id="stock-code"'); return; }
-    
+    if (!stockCodeEl) return;
     var stockId = stockCodeEl.value.trim();
     if (!stockId) { alert('請輸入股票代碼！'); return; }
 
-    var paramNEl = document.getElementById('param-n');
-    var maShortEl = document.getElementById('param-ma-short');
-    var maLongEl = document.getElementById('param-ma-long');
-
-    var paramN = paramNEl ? parseFloat(paramNEl.value) : 2;
-    var maShortPeriod = maShortEl ? parseInt(maShortEl.value) : 5;
-    var maLongPeriod = maLongEl ? parseInt(maLongEl.value) : 20;
+    var paramN = parseFloat(document.getElementById('param-n').value) || 2;
+    var maShortPeriod = parseInt(document.getElementById('param-ma-short').value) || 5;
+    var maLongPeriod = parseInt(document.getElementById('param-ma-long').value) || 20;
 
     var loading = document.getElementById('loading');
     var report = document.getElementById('report-section');
-    if(loading) loading.style.display = 'block';
-    if(report) report.style.display = 'none';
-
-    var workerUrl = `https://taiwan-stock-api.tedclub.workers.dev?stock=${stockId}`;
-    
-    alert("【診斷提示】準備連線至後端 API，網址為:\n" + workerUrl);
+    if (loading) loading.style.display = 'block';
+    if (report) report.style.display = 'none';
 
     try {
-        var response = await fetch(workerUrl);
-        alert("【診斷提示】後端連線回應狀態碼: " + response.status);
-        
-        if (!response.ok) throw new Error("後端伺服器回應異常，狀態碼: " + response.status);
+        var response = await fetch(`https://taiwan-stock-api.tedclub.workers.dev?stock=${stockId}`);
+        if (!response.ok) throw new Error("後端回應異常");
         var resData = await response.json();
-        if (!resData.data || resData.data.length === 0) throw new Error("查無此股票或未開盤");
+        if (!resData.data || resData.data.length === 0) throw new Error("查無此股票");
 
         var stockName = resData.data[0].stock_name || "台灣個股";
-        var displayTitle = `${stockId} ${stockName}`;
-
         saveToHistory(stockId);
 
         var validData = resData.data.map(function(item) {
@@ -137,8 +120,8 @@ async function analyzeTaiwanStock() {
 
         var maShort = calculateSMA(closeArr, len - 1, maShortPeriod);
         var maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
-        
         var isBullish = (maShort && maLong) ? (currentClose > maShort && maShort > maLong) : false;
+
         var stopLoss = Number((currentClose - (R * paramN)).toFixed(2));
         var takeProfit = Number((currentClose + (R * paramN * 2)).toFixed(2));
         var trailingStopPrice = stopLoss; 
@@ -217,42 +200,32 @@ async function analyzeTaiwanStock() {
             }
         }
 
-        if(loading) loading.style.display = 'none';
-        if(report) report.style.display = 'block';
+        if (loading) loading.style.display = 'none';
+        if (report) report.style.display = 'block';
 
-        var leftTitle = document.getElementById('report-title-left');
-        var rightTitle = document.getElementById('report-title-right');
-        if(leftTitle) leftTitle.innerHTML = `📊 【${displayTitle}】均線與週期數據`;
-        if(rightTitle) rightTitle.innerHTML = `💼 【${displayTitle}】動態風控導航面板`;
+        document.getElementById('report-title-left').innerHTML = `📊 【${stockId} ${stockName}】均線與週期數據`;
+        document.getElementById('report-title-right').innerHTML = `💼 【${stockId} ${stockName}】動態風控導航面板`;
 
-        var techDataEl = document.getElementById('technical-data');
-        if(techDataEl) {
-            techDataEl.innerHTML = 
-                '• <b>當前真實收盤價：</b> <span class="text-bullish highlight">' + currentClose + '</span> 元<br>' +
-                '• <b>' + maShortPeriod + '日均線價位：</b> ' + (maShort ? maShort + ' 元' : '計算中...') + '<br>' +
-                '• <b>' + maLongPeriod + '日均線價位：</b> ' + (maLong ? maLong + ' 元' : '計算中...') + '<br>' +
-                '• <b>今日單日真實 TR：</b> ' + todayTrueRange + ' 元<br>' +
-                '• <b>🔥 操作週期採計：' + maShortPeriod + ' 日平均真實波幅 (R)：</b> <span class="text-bullish">' + R + '</span> 元';
-        }
+        document.getElementById('technical-data').innerHTML = 
+            '• <b>當前真實收盤價：</b> <span class="text-bullish highlight">' + currentClose + '</span> 元<br>' +
+            '• <b>' + maShortPeriod + '日均線價位：</b> ' + (maShort ? maShort + ' 元' : '計算中...') + '<br>' +
+            '• <b>' + maLongPeriod + '日均線價位：</b> ' + (maLong ? maLong + ' 元' : '計算中...') + '<br>' +
+            '• <b>今日單日真實 TR：</b> ' + todayTrueRange + ' 元<br>' +
+            '• <b>🔥 操作週期採計：' + maShortPeriod + ' 日平均真實波幅 (R)：</b> <span class="text-bullish">' + R + '</span> 元';
 
-        var riskDataEl = document.getElementById('risk-data');
-        if(riskDataEl) {
-            riskDataEl.innerHTML = 
-                '• <b>設定風控倍數 (N)：</b> ' + paramN + ' 倍<br>' +
-                '• <b>當前進場潛在風險：</b> <span style="color:#e67e22; font-weight:bold;">' + riskPercent + '%</span><br>' +
-                '• <b>原始動態停損價：</b> <b>' + stopLoss + ' 元</b> (剛進場防守線)<br>' +
-                '• <b>波段預期停利點：</b> <span class="text-danger"><b>' + takeProfit + ' 元</b></span> (1:2 盈虧比目標)<br>' +
-                '<div style="margin-top:10px; padding-top:10px; border-top:2px dashed #bdc3c7;">' +
-                '• <b>🚨 今日實戰防守價：</b> <span class="text-bullish" style="font-size:1.4em;">' + trailingStopPrice + ' 元</span><br>' +
-                '</div>' +
-                '<div style="margin-top:12px; font-size:13px; line-height: 1.5; color:#2c3e50; background:#f8f9fa; padding:10px; border-radius:6px; border-left: 4px solid #1abc9c;">' + adviceText + '</div>' +
-                buyDecisionHtml; 
-        }
-
-        alert("【診斷提示】報表數據渲染完畢，畫面應該已正常顯示！");
+        document.getElementById('risk-data').innerHTML = 
+            '• <b>設定風控倍數 (N)：</b> ' + paramN + ' 倍<br>' +
+            '• <b>當前進場潛在風險：</b> <span style="color:#e67e22; font-weight:bold;">' + riskPercent + '%</span><br>' +
+            '• <b>原始動態停損價：</b> <b>' + stopLoss + ' 元</b> (剛進場防守線)<br>' +
+            '• <b>波段預期停利點：</b> <span class="text-danger"><b>' + takeProfit + ' 元</b></span> (1:2 盈虧比目標)<br>' +
+            '<div style="margin-top:10px; padding-top:10px; border-top:2px dashed #bdc3c7;">' +
+            '• <b>🚨 今日實戰防守價：</b> <span class="text-bullish" style="font-size:1.4em;">' + trailingStopPrice + ' 元</span><br>' +
+            '</div>' +
+            '<div style="margin-top:12px; font-size:13px; line-height: 1.5; color:#2c3e50; background:#f8f9fa; padding:10px; border-radius:6px; border-left: 4px solid #1abc9c;">' + adviceText + '</div>' +
+            buyDecisionHtml;
 
     } catch (e) {
-        if(loading) loading.style.display = 'none';
-        alert('【數據連線或解析失敗異常】: ' + e.message);
+        if (loading) loading.style.display = 'none';
+        alert('數據直連失敗: ' + e.message);
     }
-}
+};
