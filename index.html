@@ -19,6 +19,12 @@
         .input-box input { padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
         button { background: #1abc9c; color: #fff; border: none; padding: 12px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; width: 100%; transition: background 0.2s; }
         button:hover { background: #16a085; }
+        
+        /* 🚀 動態歷史標籤樣式 */
+        .quick-links { margin-top: 10px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .quick-btn { background: #ebdcb9; color: #333; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: background 0.2s; }
+        .quick-btn:hover { background: #dfceaa; }
+        
         #loading { display: none; text-align: center; font-weight: bold; color: #e67e22; margin: 20px 0; }
         #report-section { display: none; margin-top: 25px; }
         .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -28,9 +34,6 @@
         .highlight { font-size: 20px; font-weight: bold; }
         .text-bullish { color: #e74c3c; font-weight: bold; }
         .text-danger { color: #e74c3c; font-weight: bold; }
-        .quick-links { margin-top: 15px; font-size: 13px; }
-        .quick-btn { background: #ebdcb9; color: #333; border: none; padding: 4px 8px; margin-right: 5px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-        .quick-btn:hover { background: #dfceaa; }
     </style>
 </head>
 <body>
@@ -45,13 +48,10 @@
     </div>
     
     <div class="input-group">
-        <div class="input-box">
-            <label>股票/代碼</label>
-            <input type="text" id="stock-code" value="2344" placeholder="例如: 2344">
-            <div class="quick-links">
-                <button type="button" class="quick-btn" onclick="quickSelect('2344')">華邦電</button>
-                <button type="button" class="quick-btn" onclick="quickSelect('2337')">旺宏</button>
-            </div>
+        <div class="input-box" style="grid-column: span 1;">
+            <label>股票代碼</label>
+            <input type="text" id="stock-code" value="0050" placeholder="例如: 2344">
+            <div class="quick-links" id="history-tags"></div>
         </div>
         <div class="input-box">
             <label>風控乘數 (Param N)</label>
@@ -74,11 +74,11 @@
     <div id="report-section">
         <div class="report-grid">
             <div class="card">
-                <h3>📊 均線排列與週期振幅數據</h3>
+                <h3 id="report-title-left">📊 均線排列與週期振幅數據</h3>
                 <div id="technical-data" style="line-height: 2;"></div>
             </div>
             <div class="card">
-                <h3>💼 動態風控與移動停利導航面板</h3>
+                <h3 id="report-title-right">💼 動態風控與移動停利導航面板</h3>
                 <div id="risk-data" style="line-height: 2;"></div>
             </div>
         </div>
