@@ -2,59 +2,73 @@
 // 1. 初始化與動態歷史按鈕渲染 (最多10檔，第一檔固定0050)
 // ==========================================
 document.addEventListener("DOMContentLoaded", function() {
+    // 網頁載入完成後，立即初始化歷史按鈕
     initHistoryButtons();
 });
 
 function initHistoryButtons() {
-    var history = JSON.parse(localStorage.getItem('stock_history')) || [];
-    
-    // 確保 0050 永遠在歷史清單的第一個
-    if (!history.includes('0050')) {
-        history.unshift('0050');
-    } else {
-        // 如果已存在，將其移到最前面
-        history = history.filter(item => item !== '0050');
-        history.unshift('0050');
-    }
-    
-    localStorage.setItem('stock_history', JSON.stringify(history));
+    try {
+        var history = JSON.parse(localStorage.getItem('stock_history')) || [];
+        
+        // 確保 0050 永遠在歷史清單的第一個
+        if (!history.includes('0050')) {
+            history.unshift('0050');
+        } else {
+            // 如果已存在，將其移到最前面
+            history = history.filter(function(item) { return item !== '0050'; });
+            history.unshift('0050');
+        }
+        
+        localStorage.setItem('stock_history', JSON.stringify(history));
 
-    // 渲染按鈕到畫面上
-    var container = document.getElementById('history-tags');
-    if (container) {
-        container.innerHTML = '';
-        history.forEach(function(code) {
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'quick-btn';
-            btn.innerText = code === '0050' ? '0050 元大台灣50' : code;
-            btn.onclick = function() {
-                document.getElementById("stock-code").value = code;
-                analyzeTaiwanStock();
-            };
-            container.appendChild(btn);
-        });
+        // 精準對接 HTML 中的 id="history-tags"
+        var container = document.getElementById('history-tags');
+        if (container) {
+            container.innerHTML = '';
+            history.forEach(function(code) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'quick-btn';
+                btn.innerText = code === '0050' ? '0050 元大台灣50' : code;
+                
+                // 點擊歷史按鈕：直接填入代碼並觸發計算
+                btn.onclick = function() {
+                    var inputEl = document.getElementById("stock-code");
+                    if (inputEl) {
+                        inputEl.value = code;
+                        analyzeTaiwanStock();
+                    }
+                };
+                container.appendChild(btn);
+            });
+        }
+    } catch (err) {
+        console.error("歷史按鈕渲染失敗:", err);
     }
 }
 
 // 儲存新查詢的股票（排除0050重覆加入，最多保留10檔歷史）
 function saveToHistory(code) {
-    if (code === '0050') return; // 0050 已固定，不重複處理
-    var history = JSON.parse(localStorage.getItem('stock_history')) || ['0050'];
-    
-    // 移除已存在的相同代碼，以便移到最新位置
-    history = history.filter(item => item !== code);
-    
-    // 插入到 0050 之後的第一個位子 (index 1)
-    history.splice(1, 0, code);
-    
-    // 超過 10 檔則刪除最後面的
-    if (history.length > 10) {
-        history = history.slice(0, 10);
+    try {
+        if (!code || code === '0050') return; // 0050 已固定，不重複處理
+        var history = JSON.parse(localStorage.getItem('stock_history')) || ['0050'];
+        
+        // 移除已存在的相同代碼，以便移到最新位置
+        history = history.filter(function(item) { return item !== code; });
+        
+        // 插入到 0050 之後的第一個位子 (index 1)
+        history.splice(1, 0, code);
+        
+        // 超過 10 檔則刪除最後面的
+        if (history.length > 10) {
+            history = history.slice(0, 10);
+        }
+        
+        localStorage.setItem('stock_history', JSON.stringify(history));
+        initHistoryButtons(); // 立即重新整理按鈕列
+    } catch (err) {
+        console.error("儲存歷史紀錄失敗:", err);
     }
-    
-    localStorage.setItem('stock_history', JSON.stringify(history));
-    initHistoryButtons(); // 立即重新整理按鈕列
 }
 
 // ==========================================
@@ -90,7 +104,10 @@ function calculateTrueRangeAverage(validData, period) {
 // 3. 主控程式流程
 // ==========================================
 async function analyzeTaiwanStock() {
-    var stockId = document.getElementById('stock-code').value.trim();
+    var stockCodeEl = document.getElementById('stock-code');
+    if (!stockCodeEl) return;
+    
+    var stockId = stockCodeEl.value.trim();
     if (!stockId) { alert('請輸入股票代碼！'); return; }
 
     var paramN = parseFloat(document.getElementById('param-n').value) || 2;
@@ -146,7 +163,7 @@ async function analyzeTaiwanStock() {
         var perfectPriceThreshold = Number((stopLoss * 1.04).toFixed(2)); 
         var buyDecisionHtml = '';
 
-        // 🟢 燈號控制核心（加入安全防護，避免因網頁無對應 id 導致程式碼卡死中斷）
+        // 🟢 頂部三大狀態燈號重設 (精準控制 HTML 中的 id)
         var s1 = document.getElementById('status-1');
         var s2 = document.getElementById('status-2');
         var s3 = document.getElementById('status-3');
@@ -168,9 +185,9 @@ async function analyzeTaiwanStock() {
             }
 
             buyDecisionHtml = `
-                <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#ffeaa7; border-left:6px solid #e1b12c; color:#2c3e50;">
+                <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#ffeaa7; border-left:6px solid #e1b12c; color:#2c3e50; line-height: 1.6;">
                     <b>❌ 買進決策：【 🛑 禁買：已達獲利滿足/飆股高乖離區 】</b><br>
-                    <span style="font-size:12px; line-height:1.4; display:block; margin-top:5px;">
+                    <span style="font-size:12px; display:block; margin-top:5px; color:#57606f;">
                         目前股價已噴發，此區域為舊部位「收割/移動停利」專屬，此時開新倉追高風險極大。
                     </span>
                 </div>`;
@@ -179,28 +196,27 @@ async function analyzeTaiwanStock() {
                 if(s1) { s1.style.backgroundColor = '#dff9fb'; s1.style.color = '#0984e3'; s1.style.borderColor = '#74b9ff'; }
                 adviceText = `📈 均線呈強勢多頭排列。目前 ${stockName} 屬於安全蓄勢上漲區，未達 2R 目標價前請安心持股，緊盯原始動態停損點即可。`;
                 
-                // 依據 4-7% 的量化標準計算風險回饋框
                 if (riskPercent <= 4.0) {
                     buyDecisionHtml = `
-                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#d4edda; border-left:6px solid #28a745; color:#155724;">
+                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#d4edda; border-left:6px solid #28a745; color:#155724; line-height: 1.6;">
                             <b>🎯 買進決策：【 🔥 絕佳買點：拉回防守圈 】</b><br>
-                            <span style="font-size:12px; line-height:1.4; display:block; margin-top:5px;">
+                            <span style="font-size:12px; display:block; margin-top:5px; color:#155724;">
                                 當前進場潛在風險僅 <b>${riskPercent}%</b>（符合 $\le 4\%$ 完美盈虧比）。股價極度貼近防守底線（${stopLoss} 元），具備極高實戰勝率。
                             </span>
                         </div>`;
                 } else if (riskPercent > 4.0 && riskPercent <= 7.0) {
                     buyDecisionHtml = `
-                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#e3f2fd; border-left:6px solid #2196f3; color:#0d47a1;">
+                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#e3f2fd; border-left:6px solid #2196f3; color:#0d47a1; line-height: 1.6;">
                             <b>🟢 買進決策：【 👍 可嘗試買進：常態推進 】</b><br>
-                            <span style="font-size:12px; line-height:1.4; display:block; margin-top:5px;">
+                            <span style="font-size:12px; display:block; margin-top:5px; color:#0d47a1;">
                                 趨勢多頭健康，當前進場風險為 <b>${riskPercent}%</b>，屬於合理風控範圍（$4\% \sim 7\%$），可採取常態分批佈局。
                             </span>
                         </div>`;
                 } else {
                     buyDecisionHtml = `
-                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#fff3cd; border-left:6px solid #ffc107; color:#856404;">
+                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#fff3cd; border-left:6px solid #ffc107; color:#856404; line-height: 1.6;">
                             <b>⏳ 買進決策：【 ⚠️ 觀望：短線追高風險偏大 】</b><br>
-                            <span style="font-size:12px; line-height:1.4; display:block; margin-top:5px;">
+                            <span style="font-size:12px; display:block; margin-top:5px; color:#856404;">
                                 雖然均線健康，但當前進場風險達 <b>${riskPercent}%</b>（已超過 $7\%$ 紅線）。此時追高容易被洗盤，建議靜待股價拉回到 <b>${perfectPriceThreshold} 元</b> 以下再行出手。
                             </span>
                         </div>`;
@@ -209,9 +225,9 @@ async function analyzeTaiwanStock() {
                 adviceText = `⚖️ ${stockName} 股價目前低於短均線（${maShort} 元）或未形成多頭排列。目前趨勢偏弱或進入盤整，未滿足進場訊號，持股者請嚴守防守價。`;
                 
                 buyDecisionHtml = `
-                    <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#e2e8f0; border-left:6px solid #7f8c8d; color:#2c3e50;">
+                    <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#e2e8f0; border-left:6px solid #7f8c8d; color:#2c3e50; line-height: 1.6;">
                         <b>❌ 買進決策：【 🛑 禁買：趨勢偏弱未達進場訊號 】</b><br>
-                        <span style="font-size:12px; line-height:1.4; display:block; margin-top:5px;">
+                        <span style="font-size:12px; display:block; margin-top:5px; color:#57606f;">
                             該股目前未形成多頭排列或跌破短均線，資金效益極低，絕對禁止開倉抄底。
                         </span>
                     </div>`;
@@ -219,4 +235,42 @@ async function analyzeTaiwanStock() {
         }
 
         if(loading) loading.style.display = 'none';
-        if(report) report.
+        if(report) report.style.display = 'block';
+
+        // 🎯 注入動態標題
+        var leftTitle = document.getElementById('report-title-left');
+        var rightTitle = document.getElementById('report-title-right');
+        if(leftTitle) leftTitle.innerHTML = `📊 【${displayTitle}】均線與週期數據`;
+        if(rightTitle) rightTitle.innerHTML = `💼 【${displayTitle}】動態風控導航面板`;
+
+        // 🎯 渲染左側數據
+        var techDataEl = document.getElementById('technical-data');
+        if(techDataEl) {
+            techDataEl.innerHTML = 
+                '• <b>當前真實收盤價：</b> <span class="text-bullish highlight">' + currentClose + '</span> 元<br>' +
+                '• <b>' + maShortPeriod + '日均線價位：</b> ' + (maShort ? maShort + ' 元' : '計算中...') + '<br>' +
+                '• <b>' + maLongPeriod + '日均線價位：</b> ' + (maLong ? maLong + ' 元' : '計算中...') + '<br>' +
+                '• <b>今日單日真實 TR：</b> ' + todayTrueRange + ' 元<br>' +
+                '• <b>🔥 操作週期採計：' + maShortPeriod + ' 日平均真實波幅 (R)：</b> <span class="text-bullish">' + R + '</span> 元';
+        }
+
+        // 🎯 渲染右側數據與智慧決策框
+        var riskDataEl = document.getElementById('risk-data');
+        if(riskDataEl) {
+            riskDataEl.innerHTML = 
+                '• <b>設定風控倍數 (N)：</b> ' + paramN + ' 倍<br>' +
+                '• <b>當前進場潛在風險：</b> <span style="color:#e67e22; font-weight:bold;">' + riskPercent + '%</span><br>' +
+                '• <b>原始動態停損價：</b> <b>' + stopLoss + ' 元</b> (剛進場防守線)<br>' +
+                '• <b>波段預期停利點：</b> <span class="text-danger"><b>' + takeProfit + ' 元</b></span> (1:2 盈虧比目標)<br>' +
+                '<div style="margin-top:10px; padding-top:10px; border-top:2px dashed #bdc3c7;">' +
+                '• <b>🚨 今日實戰防守價：</b> <span class="text-bullish" style="font-size:1.4em;">' + trailingStopPrice + ' 元</span><br>' +
+                '</div>' +
+                '<div style="margin-top:12px; font-size:13px; line-height: 1.5; color:#2c3e50; background:#f8f9fa; padding:10px; border-radius:6px; border-left: 4px solid #1abc9c;">' + adviceText + '</div>' +
+                buyDecisionHtml; 
+        }
+
+    } catch (e) {
+        if(loading) loading.style.display = 'none';
+        alert('數據直連失敗: ' + e.message);
+    }
+}
