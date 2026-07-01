@@ -2,8 +2,26 @@
 // 1. 初始化與動態歷史按鈕渲染 (最多10檔，第一檔固定0050)
 // ==========================================
 document.addEventListener("DOMContentLoaded", function() {
-    // 網頁載入完成後，立即初始化歷史按鈕
-    initHistoryButtons();
+    // 網頁載入完成後，初始化歷史按鈕與雙重綁定
+    try {
+        initHistoryButtons();
+    } catch (e) {
+        console.error("初始化按鈕失敗:", e);
+    }
+
+    try {
+        // 雙重保險：萬一 HTML 的 onclick 被瀏覽器封鎖，這裡主動幫按鈕綁定點擊事件
+        var calcBtn = document.querySelector('button');
+        if (calcBtn) {
+            calcBtn.addEventListener('click', function(e) {
+                // 如果是包裹在 form 中防止重整，這裡預防萬一
+                if (e && e.preventDefault) e.preventDefault();
+                analyzeTaiwanStock();
+            });
+        }
+    } catch(e) {
+        console.log("主按鈕監聽綁定跳過");
+    }
 });
 
 function initHistoryButtons() {
@@ -32,7 +50,8 @@ function initHistoryButtons() {
                 btn.innerText = code === '0050' ? '0050 元大台灣50' : code;
                 
                 // 點擊歷史按鈕：直接填入代碼並觸發計算
-                btn.onclick = function() {
+                btn.onclick = function(e) {
+                    if (e && e.preventDefault) e.preventDefault();
                     var inputEl = document.getElementById("stock-code");
                     if (inputEl) {
                         inputEl.value = code;
@@ -105,14 +124,19 @@ function calculateTrueRangeAverage(validData, period) {
 // ==========================================
 async function analyzeTaiwanStock() {
     var stockCodeEl = document.getElementById('stock-code');
-    if (!stockCodeEl) return;
+    if (!stockCodeEl) { alert('系統錯誤：找不到股票代碼輸入框！'); return; }
     
     var stockId = stockCodeEl.value.trim();
     if (!stockId) { alert('請輸入股票代碼！'); return; }
 
-    var paramN = parseFloat(document.getElementById('param-n').value) || 2;
-    var maShortPeriod = parseInt(document.getElementById('param-ma-short').value) || 5;
-    var maLongPeriod = parseInt(document.getElementById('param-ma-long').value) || 20;
+    // 🎯 100% 全面防護：使用最安全的取值法，絕對不拋出錯誤斷頭
+    var paramNEl = document.getElementById('param-n');
+    var maShortEl = document.getElementById('param-ma-short');
+    var maLongEl = document.getElementById('param-ma-long');
+
+    var paramN = paramNEl ? parseFloat(paramNEl.value) : 2;
+    var maShortPeriod = maShortEl ? parseInt(maShortEl.value) : 5;
+    var maLongPeriod = maLongEl ? parseInt(maLongEl.value) : 20;
 
     var loading = document.getElementById('loading');
     var report = document.getElementById('report-section');
@@ -127,7 +151,7 @@ async function analyzeTaiwanStock() {
         var resData = await response.json();
         if (!resData.data || resData.data.length === 0) throw new Error("查無此股票或未開盤");
 
-        // 🎯 自動由 API 解析股票名稱 (FinMind 欄位對接)
+        // 自動由 API 解析股票名稱
         var stockName = resData.data[0].stock_name || "台灣個股";
         var displayTitle = `${stockId} ${stockName}`;
 
@@ -158,12 +182,12 @@ async function analyzeTaiwanStock() {
         var trailingStopPrice = stopLoss; 
         var adviceText = '';
 
-        // 🧠 核心增量：計算進場風險百分比與智慧決策閾值
+        // 計算進場風險百分比與智慧決策閾值
         var riskPercent = Number((((currentClose - stopLoss) / currentClose) * 100).toFixed(1));
         var perfectPriceThreshold = Number((stopLoss * 1.04).toFixed(2)); 
         var buyDecisionHtml = '';
 
-        // 🟢 頂部三大狀態燈號重設 (精準控制 HTML 中的 id)
+        // 🟢 頂部三大狀態燈號重設
         var s1 = document.getElementById('status-1');
         var s2 = document.getElementById('status-2');
         var s3 = document.getElementById('status-3');
@@ -188,7 +212,7 @@ async function analyzeTaiwanStock() {
                 <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#ffeaa7; border-left:6px solid #e1b12c; color:#2c3e50; line-height: 1.6;">
                     <b>❌ 買進決策：【 🛑 禁買：已達獲利滿足/飆股高乖離區 】</b><br>
                     <span style="font-size:12px; display:block; margin-top:5px; color:#57606f;">
-                        目前股價已噴發，此區域為舊部位「收割/移動停利」專屬，此時開新倉追高風險極大。
+                        目前股價已噴發，此區域為舊部位「收割/移動停利」專專屬，此時開新倉追高風險極大。
                     </span>
                 </div>`;
         } else {
@@ -201,7 +225,7 @@ async function analyzeTaiwanStock() {
                         <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#d4edda; border-left:6px solid #28a745; color:#155724; line-height: 1.6;">
                             <b>🎯 買進決策：【 🔥 絕佳買點：拉回防守圈 】</b><br>
                             <span style="font-size:12px; display:block; margin-top:5px; color:#155724;">
-                                當前進場潛在風險僅 <b>${riskPercent}%</b>（符合 $\le 4\%$ 完美盈虧比）。股價極度貼近防守底線（${stopLoss} 元），具備極高實戰勝率。
+                                當前進場潛在風險僅 <b>${riskPercent}%</b>（符合 <= 4% 完美盈虧比）。股價極度貼近防守底線（${stopLoss} 元），具備極高實戰勝率。
                             </span>
                         </div>`;
                 } else if (riskPercent > 4.0 && riskPercent <= 7.0) {
@@ -209,7 +233,7 @@ async function analyzeTaiwanStock() {
                         <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#e3f2fd; border-left:6px solid #2196f3; color:#0d47a1; line-height: 1.6;">
                             <b>🟢 買進決策：【 👍 可嘗試買進：常態推進 】</b><br>
                             <span style="font-size:12px; display:block; margin-top:5px; color:#0d47a1;">
-                                趨勢多頭健康，當前進場風險為 <b>${riskPercent}%</b>，屬於合理風控範圍（$4\% \sim 7\%$），可採取常態分批佈局。
+                                趨勢多頭健康，當前進場風險為 <b>${riskPercent}%</b>，屬於合理風控範圍 (4% ~ 7%)，可採取常態分批佈局。
                             </span>
                         </div>`;
                 } else {
@@ -217,7 +241,7 @@ async function analyzeTaiwanStock() {
                         <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#fff3cd; border-left:6px solid #ffc107; color:#856404; line-height: 1.6;">
                             <b>⏳ 買進決策：【 ⚠️ 觀望：短線追高風險偏大 】</b><br>
                             <span style="font-size:12px; display:block; margin-top:5px; color:#856404;">
-                                雖然均線健康，但當前進場風險達 <b>${riskPercent}%</b>（已超過 $7\%$ 紅線）。此時追高容易被洗盤，建議靜待股價拉回到 <b>${perfectPriceThreshold} 元</b> 以下再行出手。
+                                雖然均線健康，但當前進場風險達 <b>${riskPercent}%</b>（已超過 7% 紅線）。此時追高容易被洗盤，建議靜待股價拉回到 <b>${perfectPriceThreshold} 元</b> 以下再行出手。
                             </span>
                         </div>`;
                 }
@@ -268,9 +292,3 @@ async function analyzeTaiwanStock() {
                 '<div style="margin-top:12px; font-size:13px; line-height: 1.5; color:#2c3e50; background:#f8f9fa; padding:10px; border-radius:6px; border-left: 4px solid #1abc9c;">' + adviceText + '</div>' +
                 buyDecisionHtml; 
         }
-
-    } catch (e) {
-        if(loading) loading.style.display = 'none';
-        alert('數據直連失敗: ' + e.message);
-    }
-}
