@@ -1,45 +1,19 @@
 // ==========================================
-// 1. 初始化與動態歷史按鈕渲染 (最多10檔，第一檔固定0050)
+// 🚨 診斷檢測點：只要檔案有被成功讀取，網頁一打開就絕對會彈窗！
 // ==========================================
-document.addEventListener("DOMContentLoaded", function() {
-    // 網頁載入完成後，初始化歷史按鈕與雙重綁定
-    try {
-        initHistoryButtons();
-    } catch (e) {
-        console.error("初始化按鈕失敗:", e);
-    }
+alert("【診斷提示】app.js 已成功被網頁載入！");
 
-    try {
-        // 雙重保險：萬一 HTML 的 onclick 被瀏覽器封鎖，這裡主動幫按鈕綁定點擊事件
-        var calcBtn = document.querySelector('button');
-        if (calcBtn) {
-            calcBtn.addEventListener('click', function(e) {
-                // 如果是包裹在 form 中防止重整，這裡預防萬一
-                if (e && e.preventDefault) e.preventDefault();
-                analyzeTaiwanStock();
-            });
-        }
-    } catch(e) {
-        console.log("主按鈕監聽綁定跳過");
-    }
+document.addEventListener("DOMContentLoaded", function() {
+    alert("【診斷提示】網頁結構載入完畢，開始初始化歷史按鈕。");
+    initHistoryButtons();
 });
 
 function initHistoryButtons() {
     try {
         var history = JSON.parse(localStorage.getItem('stock_history')) || [];
-        
-        // 確保 0050 永遠在歷史清單的第一個
-        if (!history.includes('0050')) {
-            history.unshift('0050');
-        } else {
-            // 如果已存在，將其移到最前面
-            history = history.filter(function(item) { return item !== '0050'; });
-            history.unshift('0050');
-        }
-        
+        if (!history.includes('0050')) { history.unshift('0050'); }
         localStorage.setItem('stock_history', JSON.stringify(history));
 
-        // 精準對接 HTML 中的 id="history-tags"
         var container = document.getElementById('history-tags');
         if (container) {
             container.innerHTML = '';
@@ -48,8 +22,6 @@ function initHistoryButtons() {
                 btn.type = 'button';
                 btn.className = 'quick-btn';
                 btn.innerText = code === '0050' ? '0050 元大台灣50' : code;
-                
-                // 點擊歷史按鈕：直接填入代碼並觸發計算
                 btn.onclick = function(e) {
                     if (e && e.preventDefault) e.preventDefault();
                     var inputEl = document.getElementById("stock-code");
@@ -62,37 +34,24 @@ function initHistoryButtons() {
             });
         }
     } catch (err) {
-        console.error("歷史按鈕渲染失敗:", err);
+        alert("歷史按鈕初始化崩潰: " + err.message);
     }
 }
 
-// 儲存新查詢的股票（排除0050重覆加入，最多保留10檔歷史）
 function saveToHistory(code) {
     try {
-        if (!code || code === '0050') return; // 0050 已固定，不重複處理
+        if (!code || code === '0050') return;
         var history = JSON.parse(localStorage.getItem('stock_history')) || ['0050'];
-        
-        // 移除已存在的相同代碼，以便移到最新位置
         history = history.filter(function(item) { return item !== code; });
-        
-        // 插入到 0050 之後的第一個位子 (index 1)
         history.splice(1, 0, code);
-        
-        // 超過 10 檔則刪除最後面的
-        if (history.length > 10) {
-            history = history.slice(0, 10);
-        }
-        
+        if (history.length > 10) { history = history.slice(0, 10); }
         localStorage.setItem('stock_history', JSON.stringify(history));
-        initHistoryButtons(); // 立即重新整理按鈕列
+        initHistoryButtons();
     } catch (err) {
         console.error("儲存歷史紀錄失敗:", err);
     }
 }
 
-// ==========================================
-// 2. 均線與真實波幅計算核心
-// ==========================================
 function calculateSMA(data, idx, period) {
     if (idx < period - 1) return null;
     var sum = 0;
@@ -120,16 +79,18 @@ function calculateTrueRangeAverage(validData, period) {
 }
 
 // ==========================================
-// 3. 主控程式流程
+// 主控程式流程
 // ==========================================
 async function analyzeTaiwanStock() {
+    // 進入函式立刻彈窗，證明按鈕有成功叫到這個功能
+    alert("【診斷提示】成功點擊按鈕，開始執行計算流程！");
+
     var stockCodeEl = document.getElementById('stock-code');
-    if (!stockCodeEl) { alert('系統錯誤：找不到股票代碼輸入框！'); return; }
+    if (!stockCodeEl) { alert('錯誤：找不到 id="stock-code"'); return; }
     
     var stockId = stockCodeEl.value.trim();
     if (!stockId) { alert('請輸入股票代碼！'); return; }
 
-    // 🎯 100% 全面防護：使用最安全的取值法，絕對不拋出錯誤斷頭
     var paramNEl = document.getElementById('param-n');
     var maShortEl = document.getElementById('param-ma-short');
     var maLongEl = document.getElementById('param-ma-long');
@@ -144,18 +105,20 @@ async function analyzeTaiwanStock() {
     if(report) report.style.display = 'none';
 
     var workerUrl = `https://taiwan-stock-api.tedclub.workers.dev?stock=${stockId}`;
+    
+    alert("【診斷提示】準備連線至後端 API，網址為:\n" + workerUrl);
 
     try {
         var response = await fetch(workerUrl);
-        if (!response.ok) throw new Error("後端伺服器回應異常");
+        alert("【診斷提示】後端連線回應狀態碼: " + response.status);
+        
+        if (!response.ok) throw new Error("後端伺服器回應異常，狀態碼: " + response.status);
         var resData = await response.json();
         if (!resData.data || resData.data.length === 0) throw new Error("查無此股票或未開盤");
 
-        // 自動由 API 解析股票名稱
         var stockName = resData.data[0].stock_name || "台灣個股";
         var displayTitle = `${stockId} ${stockName}`;
 
-        // 成功查詢後，動態將該代碼寫入歷史紀錄
         saveToHistory(stockId);
 
         var validData = resData.data.map(function(item) {
@@ -176,18 +139,15 @@ async function analyzeTaiwanStock() {
         var maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
         
         var isBullish = (maShort && maLong) ? (currentClose > maShort && maShort > maLong) : false;
-
         var stopLoss = Number((currentClose - (R * paramN)).toFixed(2));
         var takeProfit = Number((currentClose + (R * paramN * 2)).toFixed(2));
         var trailingStopPrice = stopLoss; 
         var adviceText = '';
 
-        // 計算進場風險百分比與智慧決策閾值
         var riskPercent = Number((((currentClose - stopLoss) / currentClose) * 100).toFixed(1));
         var perfectPriceThreshold = Number((stopLoss * 1.04).toFixed(2)); 
         var buyDecisionHtml = '';
 
-        // 🟢 頂部三大狀態燈號重設
         var s1 = document.getElementById('status-1');
         var s2 = document.getElementById('status-2');
         var s3 = document.getElementById('status-3');
@@ -212,7 +172,7 @@ async function analyzeTaiwanStock() {
                 <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#ffeaa7; border-left:6px solid #e1b12c; color:#2c3e50; line-height: 1.6;">
                     <b>❌ 買進決策：【 🛑 禁買：已達獲利滿足/飆股高乖離區 】</b><br>
                     <span style="font-size:12px; display:block; margin-top:5px; color:#57606f;">
-                        目前股價已噴發，此區域為舊部位「收割/移動停利」專專屬，此時開新倉追高風險極大。
+                        目前股價已噴發，此區域為舊部位「收割/移動停利」專屬，此時開新倉追高風險極大。
                     </span>
                 </div>`;
         } else {
@@ -247,7 +207,6 @@ async function analyzeTaiwanStock() {
                 }
             } else {
                 adviceText = `⚖️ ${stockName} 股價目前低於短均線（${maShort} 元）或未形成多頭排列。目前趨勢偏弱或進入盤整，未滿足進場訊號，持股者請嚴守防守價。`;
-                
                 buyDecisionHtml = `
                     <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#e2e8f0; border-left:6px solid #7f8c8d; color:#2c3e50; line-height: 1.6;">
                         <b>❌ 買進決策：【 🛑 禁買：趨勢偏弱未達進場訊號 】</b><br>
@@ -261,13 +220,11 @@ async function analyzeTaiwanStock() {
         if(loading) loading.style.display = 'none';
         if(report) report.style.display = 'block';
 
-        // 🎯 注入動態標題
         var leftTitle = document.getElementById('report-title-left');
         var rightTitle = document.getElementById('report-title-right');
         if(leftTitle) leftTitle.innerHTML = `📊 【${displayTitle}】均線與週期數據`;
         if(rightTitle) rightTitle.innerHTML = `💼 【${displayTitle}】動態風控導航面板`;
 
-        // 🎯 渲染左側數據
         var techDataEl = document.getElementById('technical-data');
         if(techDataEl) {
             techDataEl.innerHTML = 
@@ -278,7 +235,6 @@ async function analyzeTaiwanStock() {
                 '• <b>🔥 操作週期採計：' + maShortPeriod + ' 日平均真實波幅 (R)：</b> <span class="text-bullish">' + R + '</span> 元';
         }
 
-        // 🎯 渲染右側數據與智慧決策框
         var riskDataEl = document.getElementById('risk-data');
         if(riskDataEl) {
             riskDataEl.innerHTML = 
@@ -292,3 +248,11 @@ async function analyzeTaiwanStock() {
                 '<div style="margin-top:12px; font-size:13px; line-height: 1.5; color:#2c3e50; background:#f8f9fa; padding:10px; border-radius:6px; border-left: 4px solid #1abc9c;">' + adviceText + '</div>' +
                 buyDecisionHtml; 
         }
+
+        alert("【診斷提示】報表數據渲染完畢，畫面應該已正常顯示！");
+
+    } catch (e) {
+        if(loading) loading.style.display = 'none';
+        alert('【數據連線或解析失敗異常】: ' + e.message);
+    }
+}
