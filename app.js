@@ -60,7 +60,7 @@ async function analyzeTaiwanStock() {
     if(loading) loading.style.display = 'block';
     if(report) report.style.display = 'none';
 
-    // 🎯 雲端中繼站 API 網址
+    // 🎯 雲端中繼站 API 網址 (確保能繞過瀏覽器 CORS 限制)
     var workerUrl = `https://taiwan-stock-api.tedclub.workers.dev?stock=${stockId}`;
 
     try {
@@ -103,8 +103,13 @@ async function analyzeTaiwanStock() {
         var maShort = calculateSMA(closeArr, len - 1, maShortPeriod);
         var maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
         
-        // 判斷是否為強勢多頭排列
-        var isBullish = (maShort && maLong) ? (currentClose > maShort && maShort > maLong) : false;
+        // 🎯 修正版均線判斷：用最白話的數值直接比對，防堵任何型態誤差
+        var isBullish = false;
+        if (maShort && maLong) {
+            if (currentClose > maShort && maShort > maLong) {
+                isBullish = true;
+            }
+        }
 
         // 🔥 經典實用風控價位推算
         var stopLoss = Number((currentClose - (R * paramN)).toFixed(2));
@@ -115,7 +120,7 @@ async function analyzeTaiwanStock() {
         var adviceText = '';
 
         // ==========================================
-        // 核心邏輯：經典彩色大燈號與實戰提醒判定
+        // 核心邏輯：經典彩色大燈號與實戰提醒判定 (賺錢達標優先)
         // ==========================================
         if (currentClose >= takeProfit) {
             // 【狀態二】利潤首要滿足點 (衝破 2R 預期目標區)
@@ -138,4 +143,34 @@ async function analyzeTaiwanStock() {
                 statusHtml = `<div style="background-color: #dff9fb; padding: 15px; border-radius: 8px; font-weight: bold; text-align: center; color: #0984e3; border: 2px solid #74b9ff; margin-bottom: 15px; font-size: 16px;">🟢 安全蓄勢區 (未達目標價)</div>`;
                 adviceText = `📈 均線呈強勢多頭排列。目前屬於安全蓄勢上漲區，未達 2R 目標價前請安心持股，緊盯原始動態停損點即可。`;
             } else {
-                statusHtml = `<div style="background-color: #f1f2f6; padding: 15px; border-radius: 8px; font-weight: bold; text-align: center; color: #57606f; border: 2px solid #ced6e0
+                // 💡 華邦電跌破 5 日線時，現在會完美精準走進這一個灰色區塊！
+                statusHtml = `<div style="background-color: #f1f2f6; padding: 15px; border-radius: 8px; font-weight: bold; text-align: center; color: #57606f; border: 2px solid #ced6e0; margin-bottom: 15px; font-size: 16px;">⚪ 趨勢偏弱 / 進入盤整</div>`;
+                adviceText = `⚖️ 股價跌破短均線或未形成多頭排列。目前未滿足強勢多頭進場訊號，若已持股請緊守防守價；未進場者請謹慎觀望。`;
+            }
+        }
+
+        // 關閉 Loading，開啟報告
+        if(loading) loading.style.display = 'none';
+        if(report) report.style.display = 'block';
+
+        // ==========================================
+        // 4. 畫面渲染：左邊技術數據面板
+        // ==========================================
+        document.getElementById('technical-data').innerHTML = 
+            '• <b>當前真實收盤價：</b> <span class="highlight text-bullish">' + currentClose + '</span> 元<br>' +
+            '• <b>' + maShortPeriod + '日均線價位：</b> ' + (maShort ? maShort + ' 元' : '計算中...') + '<br>' +
+            '• <b>' + maLongPeriod + '日均線價位：</b> ' + (maLong ? maLong + ' 元' : '計算中...') + '<br>' +
+            '• <b>今日單日真實 TR：</b> ' + todayTrueRange + ' 元<br>' +
+            '• <b>🔥 操作週期採計：' + maShortPeriod + ' 日平均真實波幅 (R)：</b> <span class="text-bullish" style="font-weight:bold;">' + R + '</span> 元';
+
+        // ==========================================
+        // 5. 畫面渲染：右邊動態風控面板 (完美加回實戰編排)
+        // ==========================================
+        document.getElementById('risk-data').innerHTML = 
+            statusHtml + // 注入最上方的動態彩色大方塊燈號
+            '• <b>設定風控倍數 (N)：</b> ' + paramN + ' 倍<br>' +
+            '• <b>原始動態停損價：</b> <b>' + stopLoss + ' 元</b> (剛進場防守線)<br>' +
+            '• <b>波段利潤滿足點 (2R)：</b> <span class="text-danger" style="font-weight:bold;">' + takeProfit + ' 元</span> (1:2 盈虧比目標)<br>' +
+            '<div style="margin-top:10px; padding-top:10px; border-top:2px dashed #bdc3c7;">' +
+            '• <b>🚨 今日實戰防守價：</b> <span class="text-bullish highlight" style="font-size:1.4em;">' + trailingStopPrice + ' 元</span><br>' +
+            '</div>
