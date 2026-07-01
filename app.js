@@ -20,7 +20,7 @@ async function analyzeTaiwanStock() {
     if(report) report.style.display = 'none';
 
     // 🚀 【核心更換】把這裡換成你剛剛在 Cloudflare Workers 得到的專屬網址！
-    var workerUrl = `https://taiwan-stock-api.你的名字.workers.dev?stock=${stockId}`;
+    var workerUrl = `https://taiwan-stock-api.tedclub.workers.dev?stock=${stockId}`;
 
     try {
         var response = await fetch(workerUrl);
