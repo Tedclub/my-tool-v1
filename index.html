@@ -3,93 +3,120 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>強勢多頭排列防守導航儀V</title>
+    <title>強勢多頭排列防守導航儀 V2</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; }
-        .container { max-width: 1000px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        h1 { text-align: center; color: #e74c3c; font-size: 24px; margin-bottom: 25px; }
-        
-        /* 頂部三大狀態燈號區 */
-        .status-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 25px; }
+        .container { max-width: 1050px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        h1 { text-align: center; color: #e74c3c; font-size: 24px; margin-bottom: 8px; }
+        .version-note { text-align: center; color: #64748b; font-size: 13px; margin-bottom: 18px; }
+        .docs-link { text-align: center; margin-bottom: 25px; }
+        .docs-link a { display: inline-block; padding: 6px 14px; font-size: 13px; font-weight: bold; color: #ebdcb9; background-color: #2c3e50; text-decoration: none; border-radius: 4px; }
+        .status-container { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 25px; }
         .status-box { background-color: #e2e8f0; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 14px; color: #64748b; border: 2px solid #cbd5e1; transition: all 0.3s; }
-        
-        .input-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px; background: #f8f9fa; padding: 20px; border-radius: 8px; }
-        .input-box { display: flex; flex-direction: column; }
+        .input-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 16px; background: #f8f9fa; padding: 20px; border-radius: 8px; }
+        .input-box { display: flex; flex-direction: column; min-width: 0; }
         .input-box label { font-size: 13px; font-weight: bold; margin-bottom: 6px; color: #34495e; }
-        .input-box input { padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+        .input-box small { margin-top: 5px; color: #64748b; line-height: 1.4; }
+        .input-box input { padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; min-width: 0; }
         button { background: #1abc9c; color: #fff; border: none; padding: 12px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; width: 100%; transition: background 0.2s; }
         button:hover { background: #16a085; }
-        
-        /* 🚀 動態歷史標籤樣式 */
         .quick-links { margin-top: 10px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px; }
-        .quick-btn { background: #ebdcb9; color: #333; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: background 0.2s; }
+        .quick-btn { background: #ebdcb9; color: #333; border: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; width: auto; }
         .quick-btn:hover { background: #dfceaa; }
-        
+        .scenario-box { margin: 20px 0; padding: 18px; background: #f8fbff; border: 1px solid #cfe2f3; border-radius: 8px; }
+        .scenario-box h2 { margin: 0 0 6px; font-size: 17px; }
+        .scenario-box p { margin: 0 0 14px; color: #64748b; font-size: 13px; line-height: 1.6; }
+        .scenario-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        .scenario-actions button { width: auto; flex: 1 1 180px; }
+        .secondary-btn { background: #64748b; }
+        .secondary-btn:hover { background: #475569; }
         #loading { display: none; text-align: center; font-weight: bold; color: #e67e22; margin: 20px 0; }
         #report-section { display: none; margin-top: 25px; }
+        .data-date { margin-bottom: 15px; padding: 10px 12px; border-radius: 6px; background: #f1f5f9; font-size: 13px; color: #475569; font-weight: bold; }
         .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        @media(max-width: 768px) { .report-grid { grid-template-columns: 1fr; } }
-        .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
+        .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); min-width: 0; }
         .card h3 { margin-top: 0; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px; color: #2c3e50; font-size: 16px; }
         .highlight { font-size: 20px; font-weight: bold; }
         .text-bullish { color: #e74c3c; font-weight: bold; }
-        .text-danger { color: #e74c3c; font-weight: bold; }
+        .metric-note { color: #64748b; font-size: 12px; line-height: 1.6; }
+        .scenario-result { margin-top: 20px; }
+        @media(max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 18px; }
+            .status-container, .report-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-
 <div class="container">
-    <h1>🚀 強勢多頭排列防守導航儀</h1>
-    
-    <!-- 🎯 完美變身！直接指向同行目錄下的 docs.html 前端說明書頁面 -->
-    <div style="text-align: center; margin-top: -15px; margin-bottom: 25px;">
-        <a href="docs.html" 
-           target="_blank" 
-           rel="noopener noreferrer" 
-           style="display: inline-block; padding: 6px 14px; font-size: 13px; font-weight: bold; color: #ebdcb9; background-color: #2c3e50; text-decoration: none; border-radius: 4px; transition: background 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-           📖 開啟操盤手說明書 (Web 版)
-        </a>
+    <h1>🚀 強勢多頭排列防守導航儀 V2</h1>
+    <div class="version-note">技術指標＋風控空間計算器｜動態指標與固定基準分開計算</div>
+
+    <div class="docs-link">
+        <a href="docs.html" target="_blank" rel="noopener noreferrer">📖 開啟 V2 說明書</a>
     </div>
-    
+
     <div class="status-container">
-        <div id="status-1" class="status-box">🟢 安全蓄勢區<br>(未達目標價)</div>
-        <div id="status-2" class="status-box">🔥 利潤首要滿足點<br>(建議分批落袋 1/3)</div>
-        <div id="status-3" class="status-box">🚀 瘋狂主升飆股區<br>(啟動 移動停利)</div>
+        <div id="status-1" class="status-box">📈 趨勢狀態<br>等待計算</div>
+        <div id="status-2" class="status-box">🎯 2R 基準狀態<br>尚未建立基準</div>
+        <div id="status-3" class="status-box">📏 MA乖離狀態<br>等待計算</div>
     </div>
-    
+
     <div class="input-group">
-        <div class="input-box" style="grid-column: span 1;">
+        <div class="input-box">
             <label>股票代碼</label>
             <input type="text" id="stock-code" value="0050" placeholder="例如: 2344">
             <div class="quick-links" id="history-tags"></div>
         </div>
         <div class="input-box">
-            <label>風控乘數 (Param N)</label>
-            <input type="number" id="param-n" value="2" step="0.1">
+            <label>風控乘數 N</label>
+            <input type="number" id="param-n" value="2" step="0.1" min="0.1">
         </div>
         <div class="input-box">
-            <label>短均線天數 (R採計週期)</label>
-            <input type="number" id="param-ma-short" value="5">
+            <label>短均線／R 採計週期</label>
+            <input type="number" id="param-ma-short" value="5" min="2">
         </div>
         <div class="input-box">
             <label>長均線天數</label>
-            <input type="number" id="param-ma-long" value="20">
+            <input type="number" id="param-ma-long" value="20" min="3">
         </div>
     </div>
 
-    <button onclick="analyzeTaiwanStock()">🎯 開始動態風控計算</button>
+    <button id="analyze-btn" type="button">🎯 開始技術指標計算</button>
 
-    <div id="loading">📡 正在直連雲端後端抓取歷史 K 線數據...</div>
+    <div class="scenario-box">
+        <h2>固定基準試算（選填）</h2>
+        <p>用來回答「如果以某個價格與當時的 R 為基準，固定防守、+1R、+2R 在哪裡？」這組數值不會因為今日收盤價重新計算而自己往前跑。</p>
+        <div class="input-group" style="margin-bottom:12px; padding:0; background:transparent;">
+            <div class="input-box">
+                <label>基準價格</label>
+                <input type="number" id="reference-price" step="0.01" placeholder="例如 73.00">
+            </div>
+            <div class="input-box">
+                <label>基準 R</label>
+                <input type="number" id="reference-r" step="0.01" placeholder="例如 2.00">
+                <small>可按下方按鈕，以本次最新收盤與 R 自動填入。</small>
+            </div>
+        </div>
+        <div class="scenario-actions">
+            <button id="use-current-btn" type="button" class="secondary-btn">以本次收盤與 R 填入基準</button>
+            <button id="scenario-btn" type="button">計算固定基準</button>
+        </div>
+        <div id="scenario-result" class="scenario-result"></div>
+    </div>
+
+    <div id="loading">📡 正在抓取歷史 K 線數據...</div>
 
     <div id="report-section">
+        <div id="data-date" class="data-date"></div>
         <div class="report-grid">
             <div class="card">
-                <h3 id="report-title-left">📊 均線排列與週期振幅數據</h3>
-                <div id="technical-data" style="line-height: 2;"></div>
+                <h3 id="report-title-left">📊 均線與波動數據</h3>
+                <div id="technical-data" style="line-height:2;"></div>
             </div>
             <div class="card">
-                <h3 id="report-title-right">💼 動態風控與移動停利導航面板</h3>
-                <div id="risk-data" style="line-height: 2;"></div>
+                <h3 id="report-title-right">💼 今日動態風控空間</h3>
+                <div id="risk-data" style="line-height:2;"></div>
             </div>
         </div>
     </div>
