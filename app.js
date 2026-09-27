@@ -1,34 +1,38 @@
-// ==========================================
-// 1. 初始化與歷史按鈕列
-// ==========================================
+var lastAnalysis = null;
+
 document.addEventListener("DOMContentLoaded", function() {
     initHistoryButtons();
+
+    document.getElementById("analyze-btn").addEventListener("click", analyzeTaiwanStock);
+    document.getElementById("scenario-btn").addEventListener("click", calculateScenario);
+    document.getElementById("use-current-btn").addEventListener("click", useCurrentAsReference);
+
+    document.getElementById("stock-code").addEventListener("keydown", function(e) {
+        if (e.key === "Enter") analyzeTaiwanStock();
+    });
 });
 
 function initHistoryButtons() {
     try {
-        var history = JSON.parse(localStorage.getItem('stock_history')) || ['0050'];
-        if (!history.includes('0050')) history.unshift('0050');
-        localStorage.setItem('stock_history', JSON.stringify(history));
+        var history = JSON.parse(localStorage.getItem("stock_history")) || ["0050"];
+        if (!history.includes("0050")) history.unshift("0050");
+        localStorage.setItem("stock_history", JSON.stringify(history));
 
-        var container = document.getElementById('history-tags');
-        if (container) {
-            container.innerHTML = '';
-            history.forEach(function(code) {
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'quick-btn';
-                btn.innerText = code === '0050' ? '0050 元大台灣50' : code;
-                btn.onclick = function() {
-                    var inputEl = document.getElementById("stock-code");
-                    if (inputEl) {
-                        inputEl.value = code;
-                        analyzeTaiwanStock();
-                    }
-                };
-                container.appendChild(btn);
+        var container = document.getElementById("history-tags");
+        if (!container) return;
+
+        container.innerHTML = "";
+        history.forEach(function(code) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "quick-btn";
+            btn.innerText = code === "0050" ? "0050 元大台灣50" : code;
+            btn.addEventListener("click", function() {
+                document.getElementById("stock-code").value = code;
+                analyzeTaiwanStock();
             });
-        }
+            container.appendChild(btn);
+        });
     } catch (err) {
         console.error(err);
     }
@@ -36,196 +40,319 @@ function initHistoryButtons() {
 
 function saveToHistory(code) {
     try {
-        if (!code || code === '0050') return;
-        var history = JSON.parse(localStorage.getItem('stock_history')) || ['0050'];
+        if (!code || code === "0050") return;
+        var history = JSON.parse(localStorage.getItem("stock_history")) || ["0050"];
         history = history.filter(function(item) { return item !== code; });
         history.splice(1, 0, code);
         if (history.length > 10) history = history.slice(0, 10);
-        localStorage.setItem('stock_history', JSON.stringify(history));
+        localStorage.setItem("stock_history", JSON.stringify(history));
         initHistoryButtons();
     } catch (err) {
         console.error(err);
     }
 }
 
-// ==========================================
-// 2. 核心計算函式
-// ==========================================
 function calculateSMA(data, idx, period) {
     if (idx < period - 1) return null;
     var sum = 0;
-    for (var i = 0; i < period; i++) { sum += data[idx - i]; }
+    for (var i = 0; i < period; i++) sum += data[idx - i];
     return Number((sum / period).toFixed(2));
 }
 
 function calculateTrueRangeAverage(validData, period) {
-    var len = validData.length;
-    var actualPeriod = Math.min(period, len - 1);
+    if (validData.length < 2) return null;
+    var actualPeriod = Math.min(period, validData.length - 1);
     var totalTR = 0;
     var count = 0;
+
     for (var i = 0; i < actualPeriod; i++) {
-        var currentIdx = len - 1 - i;
+        var currentIdx = validData.length - 1 - i;
         var today = validData[currentIdx];
         var yesterday = validData[currentIdx - 1];
         if (!yesterday) break;
-        var tr1 = today.high - today.low;
-        var tr2 = Math.abs(today.high - yesterday.close);
-        var tr3 = Math.abs(today.low - yesterday.close);
-        totalTR += Math.max(tr1, tr2, tr3);
+
+        var tr = Math.max(
+            today.high - today.low,
+            Math.abs(today.high - yesterday.close),
+            Math.abs(today.low - yesterday.close)
+        );
+        totalTR += tr;
         count++;
     }
-    return count > 0 ? Number((totalTR / count).toFixed(2)) : Number((validData[len-1].high - validData[len-1].low).toFixed(2));
+
+    return count > 0 ? Number((totalTR / count).toFixed(2)) : null;
 }
 
-// ==========================================
-// 3. 主控程式流程（掛載在 window 確保 HTML 絕對抓得到）
-// ==========================================
-window.analyzeTaiwanStock = async function() {
-    var stockCodeEl = document.getElementById('stock-code');
-    if (!stockCodeEl) return;
-    var stockId = stockCodeEl.value.trim();
-    if (!stockId) { alert('請輸入股票代碼！'); return; }
+function formatDate(value) {
+    if (!value) return "未知";
+    var s = String(value).replace(/\//g, "-");
+    var parts = s.split("-");
+    if (parts.length === 3) return parts[0] + "/" + parts[1].padStart(2, "0") + "/" + parts[2].padStart(2, "0");
+    return String(value);
+}
 
-    var paramN = parseFloat(document.getElementById('param-n').value) || 2;
-    var maShortPeriod = parseInt(document.getElementById('param-ma-short').value) || 5;
-    var maLongPeriod = parseInt(document.getElementById('param-ma-long').value) || 20;
+function resetStatusBox(el) {
+    if (!el) return;
+    el.style.backgroundColor = "#e2e8f0";
+    el.style.color = "#64748b";
+    el.style.borderColor = "#cbd5e1";
+}
 
-    var loading = document.getElementById('loading');
-    var report = document.getElementById('report-section');
-    if (loading) loading.style.display = 'block';
-    if (report) report.style.display = 'none';
+function setStatusBox(el, html, bg, color, border) {
+    if (!el) return;
+    el.innerHTML = html;
+    el.style.backgroundColor = bg;
+    el.style.color = color;
+    el.style.borderColor = border;
+}
+
+function classifyRisk(riskPercent, isBullish) {
+    if (!isBullish) {
+        return {
+            title: "⚪ 未符合多頭排列",
+            detail: "目前未同時滿足 Close > 短均線 > 長均線；本計算器不把這個狀態視為多頭條件成立。",
+            bg: "#eef2f7", border: "#94a3b8", color: "#334155"
+        };
+    }
+    if (riskPercent <= 4) {
+        return {
+            title: "🟢 符合低風險區間",
+            detail: "今日收盤至參考防守價的距離為 " + riskPercent + "%，落在本工具自訂的 ≤4% 分級。",
+            bg: "#e8f5e9", border: "#34a853", color: "#1b5e20"
+        };
+    }
+    if (riskPercent <= 7) {
+        return {
+            title: "🔵 符合一般風險區間",
+            detail: "今日收盤至參考防守價的距離為 " + riskPercent + "%，落在本工具自訂的 4%～7% 分級。",
+            bg: "#e3f2fd", border: "#2196f3", color: "#0d47a1"
+        };
+    }
+    return {
+        title: "🟡 風險距離偏高",
+        detail: "今日收盤至參考防守價的距離為 " + riskPercent + "%，高於本工具自訂的 7% 分級門檻。",
+        bg: "#fff8e1", border: "#f9a825", color: "#6d4c00"
+    };
+}
+
+async function analyzeTaiwanStock() {
+    var stockId = document.getElementById("stock-code").value.trim();
+    var paramN = parseFloat(document.getElementById("param-n").value);
+    var maShortPeriod = parseInt(document.getElementById("param-ma-short").value, 10);
+    var maLongPeriod = parseInt(document.getElementById("param-ma-long").value, 10);
+
+    if (!stockId) return alert("請輸入股票代碼。");
+    if (!Number.isFinite(paramN) || paramN <= 0) return alert("風控乘數 N 必須大於 0。");
+    if (!Number.isInteger(maShortPeriod) || maShortPeriod < 2) return alert("短均線／R 週期至少為 2 天。");
+    if (!Number.isInteger(maLongPeriod) || maLongPeriod < 3) return alert("長均線週期至少為 3 天。");
+    if (maShortPeriod >= maLongPeriod) return alert("短均線天數必須小於長均線天數。");
+
+    var loading = document.getElementById("loading");
+    var report = document.getElementById("report-section");
+    loading.style.display = "block";
+    report.style.display = "none";
 
     try {
-        var response = await fetch(`https://taiwan-stock-api.tedclub.workers.dev?stock=${stockId}`);
+        var response = await fetch("https://taiwan-stock-api.tedclub.workers.dev?stock=" + encodeURIComponent(stockId));
         if (!response.ok) throw new Error("後端回應異常");
-        var resData = await response.json();
-        if (!resData.data || resData.data.length === 0) throw new Error("查無此股票");
 
-        var stockName = resData.data[0].stock_name || "台灣個股";
-        saveToHistory(stockId);
+        var resData = await response.json();
+        if (!resData.data || !Array.isArray(resData.data) || resData.data.length === 0) {
+            throw new Error("查無此股票");
+        }
 
         var validData = resData.data.map(function(item) {
-            return { date: item.date, close: parseFloat(item.close), high: parseFloat(item.max), low: parseFloat(item.min) };
+            return {
+                date: item.date,
+                stock_name: item.stock_name,
+                close: parseFloat(item.close),
+                high: parseFloat(item.max),
+                low: parseFloat(item.min)
+            };
+        }).filter(function(item) {
+            return item.date && Number.isFinite(item.close) && Number.isFinite(item.high) && Number.isFinite(item.low);
+        }).sort(function(a, b) {
+            return new Date(a.date) - new Date(b.date);
         });
 
-        var len = validData.length;
-        var closeArr = validData.map(function(d) { return d.close; });
-        var currentClose = validData[len - 1].close;
-        var currentHigh = validData[len - 1].high;
-        var currentLow = validData[len - 1].low;
-        var yesterdayClose = validData[len - 2].close;
+        var required = Math.max(maLongPeriod, maShortPeriod) + 1;
+        if (validData.length < required) {
+            throw new Error("歷史資料不足，至少需要 " + required + " 個交易日資料");
+        }
 
-        var todayTrueRange = Number(Math.max(currentHigh - currentLow, Math.abs(currentHigh - yesterdayClose), Math.abs(currentLow - yesterdayClose)).toFixed(2));
-        var R = calculateTrueRangeAverage(validData, maShortPeriod); 
+        var len = validData.length;
+        var latest = validData[len - 1];
+        var previous = validData[len - 2];
+        var stockName = latest.stock_name || resData.data[0].stock_name || "台灣個股";
+        var closeArr = validData.map(function(d) { return d.close; });
+
+        var currentClose = latest.close;
+        var todayTrueRange = Number(Math.max(
+            latest.high - latest.low,
+            Math.abs(latest.high - previous.close),
+            Math.abs(latest.low - previous.close)
+        ).toFixed(2));
+
+        var R = calculateTrueRangeAverage(validData, maShortPeriod);
+        if (!Number.isFinite(R) || R <= 0) throw new Error("無法計算有效的平均 True Range");
 
         var maShort = calculateSMA(closeArr, len - 1, maShortPeriod);
         var maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
-        var isBullish = (maShort && maLong) ? (currentClose > maShort && maShort > maLong) : false;
+        var isBullish = currentClose > maShort && maShort > maLong;
 
-        var stopLoss = Number((currentClose - (R * paramN)).toFixed(2));
-        var takeProfit = Number((currentClose + (R * paramN * 2)).toFixed(2));
-        var trailingStopPrice = stopLoss; 
-        var adviceText = '';
+        var riskDistance = Number((R * paramN).toFixed(2));
+        var referenceDefense = Number((currentClose - riskDistance).toFixed(2));
+        var reference2RUpper = Number((currentClose + riskDistance * 2).toFixed(2));
+        var riskPercent = Number(((riskDistance / currentClose) * 100).toFixed(1));
+        var maShortBias = Number((((currentClose - maShort) / maShort) * 100).toFixed(1));
+        var maLongBias = Number((((currentClose - maLong) / maLong) * 100).toFixed(1));
+        var isHighDeviation = maShortBias >= 8;
 
-        var riskPercent = Number((((currentClose - stopLoss) / currentClose) * 100).toFixed(1));
-        var perfectPriceThreshold = Number((stopLoss * 1.04).toFixed(2)); 
-        var buyDecisionHtml = '';
+        lastAnalysis = {
+            stockId: stockId,
+            stockName: stockName,
+            currentClose: currentClose,
+            R: R,
+            paramN: paramN,
+            date: latest.date
+        };
 
-        var s1 = document.getElementById('status-1');
-        var s2 = document.getElementById('status-2');
-        var s3 = document.getElementById('status-3');
-        if(s1) { s1.style.backgroundColor = '#e2e8f0'; s1.style.color = '#64748b'; s1.style.borderColor = '#cbd5e1'; }
-        if(s2) { s2.style.backgroundColor = '#e2e8f0'; s2.style.color = '#64748b'; s2.style.borderColor = '#cbd5e1'; }
-        if(s3) { s3.style.backgroundColor = '#e2e8f0'; s3.style.color = '#64748b'; s3.style.borderColor = '#cbd5e1'; }
+        saveToHistory(stockId);
 
-        if (currentClose >= takeProfit) {
-            var trailOption1 = Number((currentClose - R).toFixed(2));
-            trailingStopPrice = Math.max(trailOption1, maShort || 0);
-            if(s2) { s2.style.backgroundColor = '#ffeaa7'; s2.style.color = '#d63031'; s2.style.borderColor = '#fdcb6e'; }
-            adviceText = `🎯 <b>【獲利滿足提示】</b> ${stockName} 價格已成功衝破 2R 預期目標區 (${takeProfit} 元)！建議分批落袋 1/3，剩餘部位開啟移動停利。`;
-            
-            if (maShort && currentClose > (maShort * 1.08)) {
-                if(s2) { s2.style.backgroundColor = '#e2e8f0'; s2.style.color = '#64748b'; s2.style.borderColor = '#cbd5e1'; }
-                if(s3) { s3.style.backgroundColor = '#ffcbdb'; s3.style.color = '#c0392b'; s3.style.borderColor = '#e74c3c'; }
-                adviceText = `⚡ <b>【飆股區加速提示】</b> ${stockName} 已進入瘋漲高乖離區！防守線強制綁定短天數均線 (${maShort} 元)，牢牢抱緊直到跌破再離場。`;
-                trailingStopPrice = Math.max(trailingStopPrice, maShort || 0);
-            }
+        var s1 = document.getElementById("status-1");
+        var s2 = document.getElementById("status-2");
+        var s3 = document.getElementById("status-3");
+        resetStatusBox(s1); resetStatusBox(s2); resetStatusBox(s3);
 
-            buyDecisionHtml = `
-                <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#ffeaa7; border-left:6px solid #e1b12c; color:#2c3e50; line-height: 1.6;">
-                    <b>❌ 買進決策：【 🛑 禁買：已達獲利滿足/飆股高乖離區 】</b><br>
-                    <span style="font-size:12px; display:block; margin-top:5px; color:#57606f;">
-                        目前股價已噴發，此區域為舊部位「收割/移動停利」專屬，此時開新倉追高風險極大。
-                    </span>
-                </div>`;
+        if (isBullish) {
+            setStatusBox(s1, "📈 趨勢狀態<br>多頭排列成立", "#dff9fb", "#0984e3", "#74b9ff");
         } else {
-            if (isBullish) {
-                if(s1) { s1.style.backgroundColor = '#dff9fb'; s1.style.color = '#0984e3'; s1.style.borderColor = '#74b9ff'; }
-                adviceText = `📈 均線呈強勢多頭排列。目前 ${stockName} 屬於安全蓄勢上漲區，未達 2R 目標價前請安心持股，緊盯原始動態停損點即可。`;
-                
-                if (riskPercent <= 4.0) {
-                    buyDecisionHtml = `
-                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#d4edda; border-left:6px solid #28a745; color:#155724; line-height: 1.6;">
-                            <b>🎯 買進決策：【 🔥 絕佳買點：拉回防守圈 】</b><br>
-                            <span style="font-size:12px; display:block; margin-top:5px; color:#155724;">
-                                當前進場潛在風險僅 <b>${riskPercent}%</b>（符合 <= 4% 完美盈虧比）。股價極度貼近防守底線（${stopLoss} 元），具備極高實戰勝率。
-                            </span>
-                        </div>`;
-                } else if (riskPercent > 4.0 && riskPercent <= 7.0) {
-                    buyDecisionHtml = `
-                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#e3f2fd; border-left:6px solid #2196f3; color:#0d47a1; line-height: 1.6;">
-                            <b>🟢 買進決策：【 👍 可嘗試買進：常態推進 】</b><br>
-                            <span style="font-size:12px; display:block; margin-top:5px; color:#0d47a1;">
-                                趨勢多頭健康，當前進場風險為 <b>${riskPercent}%</b>，屬於合理風控範圍 (4% ~ 7%)，可採取常態分批佈局。
-                            </span>
-                        </div>`;
-                } else {
-                    buyDecisionHtml = `
-                        <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#fff3cd; border-left:6px solid #ffc107; color:#856404; line-height: 1.6;">
-                            <b>⏳ 買進決策：【 ⚠️ 觀望：短線追高風險偏大 】</b><br>
-                            <span style="font-size:12px; display:block; margin-top:5px; color:#856404;">
-                                雖然均線健康，但當前進場風險達 <b>${riskPercent}%</b>（已超過 7% 紅線）。此時追高容易被洗盤，建議靜待股價拉回到 <b>${perfectPriceThreshold} 元</b> 以下再行出手。
-                            </span>
-                        </div>`;
-                }
-            } else {
-                adviceText = `⚖️ ${stockName} 股價目前低於短均線（${maShort} 元）或未形成多頭排列。目前趨勢偏弱或進入盤整，未滿足進場訊號，持股者請嚴守防守價。`;
-                buyDecisionHtml = `
-                    <div style="margin-top:15px; padding:12px; border-radius:6px; background-color:#e2e8f0; border-left:6px solid #7f8c8d; color:#2c3e50; line-height: 1.6;">
-                        <b>❌ 買進決策：【 🛑 禁買：趨勢偏弱未達進場訊號 】</b><br>
-                        <span style="font-size:12px; display:block; margin-top:5px; color:#57606f;">
-                            該股目前未形成多頭排列或跌破短均線，資金效益極低，絕對禁止開倉抄底。
-                        </span>
-                    </div>`;
-            }
+            setStatusBox(s1, "📉 趨勢狀態<br>多頭排列未成立", "#eef2f7", "#475569", "#94a3b8");
         }
 
-        if (loading) loading.style.display = 'none';
-        if (report) report.style.display = 'block';
+        updateScenarioStatus();
 
-        document.getElementById('report-title-left').innerHTML = `📊 【${stockId} ${stockName}】均線與週期數據`;
-        document.getElementById('report-title-right').innerHTML = `💼 【${stockId} ${stockName}】動態風控導航面板`;
+        if (isHighDeviation) {
+            setStatusBox(s3, "📏 MA乖離狀態<br>短均線乖離 ≥ 8%", "#ffebee", "#c62828", "#ef5350");
+        } else {
+            setStatusBox(s3, "📏 MA乖離狀態<br>短均線乖離 " + maShortBias + "%", "#e8f5e9", "#2e7d32", "#81c784");
+        }
 
-        document.getElementById('technical-data').innerHTML = 
-            '• <b>當前真實收盤價：</b> <span class="text-bullish highlight">' + currentClose + '</span> 元<br>' +
-            '• <b>' + maShortPeriod + '日均線價位：</b> ' + (maShort ? maShort + ' 元' : '計算中...') + '<br>' +
-            '• <b>' + maLongPeriod + '日均線價位：</b> ' + (maLong ? maLong + ' 元' : '計算中...') + '<br>' +
-            '• <b>今日單日真實 TR：</b> ' + todayTrueRange + ' 元<br>' +
-            '• <b>🔥 操作週期採計：' + maShortPeriod + ' 日平均真實波幅 (R)：</b> <span class="text-bullish">' + R + '</span> 元';
+        var assessment = classifyRisk(riskPercent, isBullish);
 
-        document.getElementById('risk-data').innerHTML = 
-            '• <b>設定風控倍數 (N)：</b> ' + paramN + ' 倍<br>' +
-            '• <b>當前進場潛在風險：</b> <span style="color:#e67e22; font-weight:bold;">' + riskPercent + '%</span><br>' +
-            '• <b>原始動態停損價：</b> <b>' + stopLoss + ' 元</b> (剛進場防守線)<br>' +
-            '• <b>波段預期停利點：</b> <span class="text-danger"><b>' + takeProfit + ' 元</b></span> (1:2 盈虧比目標)<br>' +
-            '<div style="margin-top:10px; padding-top:10px; border-top:2px dashed #bdc3c7;">' +
-            '• <b>🚨 今日實戰防守價：</b> <span class="text-bullish" style="font-size:1.4em;">' + trailingStopPrice + ' 元</span><br>' +
-            '</div>' +
-            '<div style="margin-top:12px; font-size:13px; line-height: 1.5; color:#2c3e50; background:#f8f9fa; padding:10px; border-radius:6px; border-left: 4px solid #1abc9c;">' + adviceText + '</div>' +
-            buyDecisionHtml;
+        document.getElementById("data-date").textContent =
+            "資料日期：" + formatDate(latest.date) + " 收盤｜本頁不是即時報價";
 
+        document.getElementById("report-title-left").textContent =
+            "📊 【" + stockId + " " + stockName + "】均線與波動數據";
+        document.getElementById("report-title-right").textContent =
+            "💼 【" + stockId + " " + stockName + "】今日動態風控空間";
+
+        document.getElementById("technical-data").innerHTML =
+            "• <b>最新收盤價：</b> <span class=\"text-bullish highlight\">" + currentClose + "</span> 元<br>" +
+            "• <b>" + maShortPeriod + " 日均線：</b> " + maShort + " 元<br>" +
+            "• <b>" + maLongPeriod + " 日均線：</b> " + maLong + " 元<br>" +
+            "• <b>現價距短均線：</b> " + (maShortBias >= 0 ? "+" : "") + maShortBias + "%<br>" +
+            "• <b>現價距長均線：</b> " + (maLongBias >= 0 ? "+" : "") + maLongBias + "%<br>" +
+            "• <b>今日 True Range：</b> " + todayTrueRange + " 元<br>" +
+            "• <b>" + maShortPeriod + " 日平均 True Range (R)：</b> <span class=\"text-bullish\">" + R + "</span> 元" +
+            "<div class=\"metric-note\">R 為最近 " + maShortPeriod + " 個 TR 的簡單平均，不等同 Wilder 平滑 ATR。</div>";
+
+        document.getElementById("risk-data").innerHTML =
+            "• <b>風控倍數 N：</b> " + paramN + " 倍<br>" +
+            "• <b>今日風控距離 N×R：</b> " + riskDistance + " 元<br>" +
+            "• <b>今日參考風險：</b> <span style=\"color:#e67e22;font-weight:bold;\">" + riskPercent + "%</span><br>" +
+            "• <b>今日參考防守價：</b> <b>" + referenceDefense + " 元</b><br>" +
+            "• <b>今日 2R 參考上緣：</b> <b>" + reference2RUpper + " 元</b><br>" +
+            "<div class=\"metric-note\">以上兩個價位都以「今天最新收盤價」重新計算，是今日風險空間尺規，不是既有部位的固定停損或固定目標。</div>" +
+            "<div style=\"margin-top:14px;padding:12px;border-radius:6px;background:" + assessment.bg + ";border-left:6px solid " + assessment.border + ";color:" + assessment.color + ";line-height:1.6;\">" +
+            "<b>條件評估：" + assessment.title + "</b><br><span style=\"font-size:12px;\">" + assessment.detail + "</span></div>";
+
+        loading.style.display = "none";
+        report.style.display = "block";
+
+        if (document.getElementById("reference-price").value && document.getElementById("reference-r").value) {
+            calculateScenario();
+        }
     } catch (e) {
-        if (loading) loading.style.display = 'none';
-        alert('數據直連失敗: ' + e.message);
+        loading.style.display = "none";
+        alert("數據讀取或計算失敗：" + e.message);
     }
-};
+}
+
+function useCurrentAsReference() {
+    if (!lastAnalysis) {
+        alert("請先完成一次股票技術指標計算。");
+        return;
+    }
+    document.getElementById("reference-price").value = lastAnalysis.currentClose;
+    document.getElementById("reference-r").value = lastAnalysis.R;
+    calculateScenario();
+}
+
+function calculateScenario() {
+    var referencePrice = parseFloat(document.getElementById("reference-price").value);
+    var referenceR = parseFloat(document.getElementById("reference-r").value);
+    var paramN = parseFloat(document.getElementById("param-n").value);
+    var result = document.getElementById("scenario-result");
+
+    if (!Number.isFinite(referencePrice) || referencePrice <= 0 || !Number.isFinite(referenceR) || referenceR <= 0) {
+        result.innerHTML = '<div class="metric-note">請輸入有效的「基準價格」與「基準 R」。</div>';
+        updateScenarioStatus();
+        return;
+    }
+    if (!Number.isFinite(paramN) || paramN <= 0) {
+        result.innerHTML = '<div class="metric-note">風控乘數 N 必須大於 0。</div>';
+        return;
+    }
+
+    var oneR = Number((referenceR * paramN).toFixed(2));
+    var defense = Number((referencePrice - oneR).toFixed(2));
+    var plus1R = Number((referencePrice + oneR).toFixed(2));
+    var plus2R = Number((referencePrice + oneR * 2).toFixed(2));
+
+    var currentRMultiple = null;
+    if (lastAnalysis && Number.isFinite(lastAnalysis.currentClose)) {
+        currentRMultiple = Number(((lastAnalysis.currentClose - referencePrice) / oneR).toFixed(2));
+    }
+
+    result.innerHTML =
+        '<div class="card" style="padding:16px;">' +
+        '<h3 style="margin-top:0;">🎯 固定基準結果</h3>' +
+        '• <b>基準價格：</b> ' + referencePrice.toFixed(2) + ' 元<br>' +
+        '• <b>基準 R：</b> ' + referenceR.toFixed(2) + ' 元<br>' +
+        '• <b>固定 1R 距離：</b> ' + oneR.toFixed(2) + ' 元<br>' +
+        '• <b>固定基準防守：</b> ' + defense.toFixed(2) + ' 元<br>' +
+        '• <b>+1R：</b> ' + plus1R.toFixed(2) + ' 元<br>' +
+        '• <b>+2R：</b> <span class="text-bullish">' + plus2R.toFixed(2) + ' 元</span><br>' +
+        (currentRMultiple === null ? '' : '• <b>目前相對基準：</b> ' + (currentRMultiple >= 0 ? '+' : '') + currentRMultiple.toFixed(2) + 'R<br>') +
+        '<div class="metric-note" style="margin-top:8px;">這組基準值只由你輸入的基準價格、基準 R 與 N 決定，不會因為今日收盤價改變而自動往前移。</div>' +
+        '</div>';
+
+    updateScenarioStatus(plus2R);
+}
+
+function updateScenarioStatus(plus2R) {
+    var s2 = document.getElementById("status-2");
+    var referencePrice = parseFloat(document.getElementById("reference-price").value);
+    var referenceR = parseFloat(document.getElementById("reference-r").value);
+
+    if (!Number.isFinite(referencePrice) || !Number.isFinite(referenceR) || !lastAnalysis) {
+        setStatusBox(s2, "🎯 2R 基準狀態<br>尚未建立基準", "#e2e8f0", "#64748b", "#cbd5e1");
+        return;
+    }
+
+    if (!Number.isFinite(plus2R)) {
+        var paramN = parseFloat(document.getElementById("param-n").value);
+        plus2R = referencePrice + referenceR * paramN * 2;
+    }
+
+    if (lastAnalysis.currentClose >= plus2R) {
+        setStatusBox(s2, "🎯 2R 基準狀態<br>已達 +2R", "#fff3cd", "#856404", "#ffc107");
+    } else {
+        var progressR = (lastAnalysis.currentClose - referencePrice) / (referenceR * lastAnalysis.paramN);
+        setStatusBox(s2, "🎯 2R 基準狀態<br>目前 " + (progressR >= 0 ? "+" : "") + progressR.toFixed(2) + "R", "#eef2ff", "#4338ca", "#a5b4fc");
+    }
+}
+
+window.analyzeTaiwanStock = analyzeTaiwanStock;
