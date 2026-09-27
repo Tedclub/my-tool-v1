@@ -10,7 +10,35 @@ document.addEventListener("DOMContentLoaded", function() {
     document.getElementById("stock-code").addEventListener("keydown", function(e) {
         if (e.key === "Enter") analyzeTaiwanStock();
     });
+
+    document.getElementById("param-n").addEventListener("input", function() {
+        if (document.getElementById("reference-price").value && document.getElementById("reference-r").value) {
+            calculateScenario();
+        }
+    });
 });
+
+function showMessage(message, type) {
+    var box = document.getElementById("message-box");
+    if (!box) return;
+    box.className = "message-box " + (type === "error" ? "message-error" : "message-info");
+    box.textContent = message;
+}
+
+function clearMessage() {
+    var box = document.getElementById("message-box");
+    if (!box) return;
+    box.className = "message-box";
+    box.textContent = "";
+}
+
+function normalizeStockCode(value) {
+    return String(value || "")
+        .replace(/\u3000/g, " ")
+        .trim()
+        .replace(/\s+/g, "")
+        .toUpperCase();
+}
 
 function initHistoryButtons() {
     try {
@@ -83,12 +111,16 @@ function calculateTrueRangeAverage(validData, period) {
     return count > 0 ? Number((totalTR / count).toFixed(2)) : null;
 }
 
+function normalizeDateKey(value) {
+    var s = String(value || "").trim().replace(/\//g, "-");
+    var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!m) return null;
+    return m[1] + "-" + m[2].padStart(2, "0") + "-" + m[3].padStart(2, "0");
+}
+
 function formatDate(value) {
-    if (!value) return "未知";
-    var s = String(value).replace(/\//g, "-");
-    var parts = s.split("-");
-    if (parts.length === 3) return parts[0] + "/" + parts[1].padStart(2, "0") + "/" + parts[2].padStart(2, "0");
-    return String(value);
+    var key = normalizeDateKey(value);
+    return key ? key.replace(/-/g, "/") : String(value || "未知");
 }
 
 function resetStatusBox(el) {
@@ -136,16 +168,22 @@ function classifyRisk(riskPercent, isBullish) {
 }
 
 async function analyzeTaiwanStock() {
-    var stockId = document.getElementById("stock-code").value.trim();
+    clearMessage();
+
+    var stockInput = document.getElementById("stock-code");
+    var stockId = normalizeStockCode(stockInput.value);
+    stockInput.value = stockId;
+
     var paramN = parseFloat(document.getElementById("param-n").value);
     var maShortPeriod = parseInt(document.getElementById("param-ma-short").value, 10);
     var maLongPeriod = parseInt(document.getElementById("param-ma-long").value, 10);
 
-    if (!stockId) return alert("請輸入股票代碼。");
-    if (!Number.isFinite(paramN) || paramN <= 0) return alert("風控乘數 N 必須大於 0。");
-    if (!Number.isInteger(maShortPeriod) || maShortPeriod < 2) return alert("短均線／R 週期至少為 2 天。");
-    if (!Number.isInteger(maLongPeriod) || maLongPeriod < 3) return alert("長均線週期至少為 3 天。");
-    if (maShortPeriod >= maLongPeriod) return alert("短均線天數必須小於長均線天數。");
+    if (!stockId) return showMessage("請輸入股票代碼。", "error");
+    if (!/^[0-9A-Z.-]{2,12}$/.test(stockId)) return showMessage("股票代碼格式不正確，請檢查是否含有空白或不必要字元。", "error");
+    if (!Number.isFinite(paramN) || paramN <= 0) return showMessage("風控乘數 N 必須大於 0。", "error");
+    if (!Number.isInteger(maShortPeriod) || maShortPeriod < 2) return showMessage("短均線／R 週期至少為 2 天。", "error");
+    if (!Number.isInteger(maLongPeriod) || maLongPeriod < 3) return showMessage("長均線週期至少為 3 天。", "error");
+    if (maShortPeriod >= maLongPeriod) return showMessage("短均線天數必須小於長均線天數。", "error");
 
     var loading = document.getElementById("loading");
     var report = document.getElementById("report-section");
@@ -163,7 +201,7 @@ async function analyzeTaiwanStock() {
 
         var validData = resData.data.map(function(item) {
             return {
-                date: item.date,
+                date: normalizeDateKey(item.date),
                 stock_name: item.stock_name,
                 close: parseFloat(item.close),
                 high: parseFloat(item.max),
@@ -172,7 +210,7 @@ async function analyzeTaiwanStock() {
         }).filter(function(item) {
             return item.date && Number.isFinite(item.close) && Number.isFinite(item.high) && Number.isFinite(item.low);
         }).sort(function(a, b) {
-            return new Date(a.date) - new Date(b.date);
+            return a.date.localeCompare(b.date);
         });
 
         var required = Math.max(maLongPeriod, maShortPeriod) + 1;
@@ -201,7 +239,8 @@ async function analyzeTaiwanStock() {
         var isBullish = currentClose > maShort && maShort > maLong;
 
         var riskDistance = Number((R * paramN).toFixed(2));
-        var referenceDefense = Number((currentClose - riskDistance).toFixed(2));
+        var rawReferenceDefense = currentClose - riskDistance;
+        var referenceDefense = Number(Math.max(0, rawReferenceDefense).toFixed(2));
         var reference2RUpper = Number((currentClose + riskDistance * 2).toFixed(2));
         var riskPercent = Number(((riskDistance / currentClose) * 100).toFixed(1));
         var maShortBias = Number((((currentClose - maShort) / maShort) * 100).toFixed(1));
@@ -213,7 +252,6 @@ async function analyzeTaiwanStock() {
             stockName: stockName,
             currentClose: currentClose,
             R: R,
-            paramN: paramN,
             date: latest.date
         };
 
@@ -225,20 +263,23 @@ async function analyzeTaiwanStock() {
         resetStatusBox(s1); resetStatusBox(s2); resetStatusBox(s3);
 
         if (isBullish) {
-            setStatusBox(s1, "📈 趨勢狀態<br>多頭排列成立", "#dff9fb", "#0984e3", "#74b9ff");
+            setStatusBox(s1, "📈 趨勢<br>多頭成立", "#dff9fb", "#0984e3", "#74b9ff");
         } else {
-            setStatusBox(s1, "📉 趨勢狀態<br>多頭排列未成立", "#eef2f7", "#475569", "#94a3b8");
+            setStatusBox(s1, "📉 趨勢<br>未成立", "#eef2f7", "#475569", "#94a3b8");
         }
 
         updateScenarioStatus();
 
         if (isHighDeviation) {
-            setStatusBox(s3, "📏 MA乖離狀態<br>短均線乖離 ≥ 8%", "#ffebee", "#c62828", "#ef5350");
+            setStatusBox(s3, "📏 乖離<br>+" + maShortBias + "%", "#ffebee", "#c62828", "#ef5350");
         } else {
-            setStatusBox(s3, "📏 MA乖離狀態<br>短均線乖離 " + maShortBias + "%", "#e8f5e9", "#2e7d32", "#81c784");
+            setStatusBox(s3, "📏 乖離<br>" + (maShortBias >= 0 ? "+" : "") + maShortBias + "%", "#e8f5e9", "#2e7d32", "#81c784");
         }
 
         var assessment = classifyRisk(riskPercent, isBullish);
+        var defenseNote = rawReferenceDefense < 0
+            ? '<div class="metric-note">⚠️ N×R 大於現價，理論防守值低於 0；畫面以 0 元顯示，代表此風控距離在實務上已失去意義。</div>'
+            : '';
 
         document.getElementById("data-date").textContent =
             "資料日期：" + formatDate(latest.date) + " 收盤｜本頁不是即時報價";
@@ -264,6 +305,7 @@ async function analyzeTaiwanStock() {
             "• <b>今日參考風險：</b> <span style=\"color:#e67e22;font-weight:bold;\">" + riskPercent + "%</span><br>" +
             "• <b>今日參考防守價：</b> <b>" + referenceDefense + " 元</b><br>" +
             "• <b>今日 2R 參考上緣：</b> <b>" + reference2RUpper + " 元</b><br>" +
+            defenseNote +
             "<div class=\"metric-note\">以上兩個價位都以「今天最新收盤價」重新計算，是今日風險空間尺規，不是既有部位的固定停損或固定目標。</div>" +
             "<div style=\"margin-top:14px;padding:12px;border-radius:6px;background:" + assessment.bg + ";border-left:6px solid " + assessment.border + ";color:" + assessment.color + ";line-height:1.6;\">" +
             "<b>條件評估：" + assessment.title + "</b><br><span style=\"font-size:12px;\">" + assessment.detail + "</span></div>";
@@ -276,21 +318,25 @@ async function analyzeTaiwanStock() {
         }
     } catch (e) {
         loading.style.display = "none";
-        alert("數據讀取或計算失敗：" + e.message);
+        report.style.display = "none";
+        showMessage("數據讀取或計算失敗：" + e.message, "error");
     }
 }
 
 function useCurrentAsReference() {
     if (!lastAnalysis) {
-        alert("請先完成一次股票技術指標計算。");
+        showMessage("請先完成一次股票技術指標計算。", "error");
         return;
     }
+    clearMessage();
     document.getElementById("reference-price").value = lastAnalysis.currentClose;
     document.getElementById("reference-r").value = lastAnalysis.R;
     calculateScenario();
 }
 
 function calculateScenario() {
+    clearMessage();
+
     var referencePrice = parseFloat(document.getElementById("reference-price").value);
     var referenceR = parseFloat(document.getElementById("reference-r").value);
     var paramN = parseFloat(document.getElementById("param-n").value);
@@ -307,7 +353,8 @@ function calculateScenario() {
     }
 
     var oneR = Number((referenceR * paramN).toFixed(2));
-    var defense = Number((referencePrice - oneR).toFixed(2));
+    var rawDefense = referencePrice - oneR;
+    var defense = Number(Math.max(0, rawDefense).toFixed(2));
     var plus1R = Number((referencePrice + oneR).toFixed(2));
     var plus2R = Number((referencePrice + oneR * 2).toFixed(2));
 
@@ -326,7 +373,8 @@ function calculateScenario() {
         '• <b>+1R：</b> ' + plus1R.toFixed(2) + ' 元<br>' +
         '• <b>+2R：</b> <span class="text-bullish">' + plus2R.toFixed(2) + ' 元</span><br>' +
         (currentRMultiple === null ? '' : '• <b>目前相對基準：</b> ' + (currentRMultiple >= 0 ? '+' : '') + currentRMultiple.toFixed(2) + 'R<br>') +
-        '<div class="metric-note" style="margin-top:8px;">這組基準值只由你輸入的基準價格、基準 R 與 N 決定，不會因為今日收盤價改變而自動往前移。</div>' +
+        (rawDefense < 0 ? '<div class="metric-note" style="margin-top:8px;">⚠️ 固定 1R 距離大於基準價格，理論防守值低於 0；畫面以 0 元顯示。</div>' : '') +
+        '<div class="metric-note" style="margin-top:8px;">這組基準值只由你輸入的基準價格、基準 R 與目前 N 決定，不會因為今日收盤價改變而自動往前移；重新整理頁面後需重新輸入。</div>' +
         '</div>';
 
     updateScenarioStatus(plus2R);
@@ -336,22 +384,24 @@ function updateScenarioStatus(plus2R) {
     var s2 = document.getElementById("status-2");
     var referencePrice = parseFloat(document.getElementById("reference-price").value);
     var referenceR = parseFloat(document.getElementById("reference-r").value);
+    var paramN = parseFloat(document.getElementById("param-n").value);
 
-    if (!Number.isFinite(referencePrice) || !Number.isFinite(referenceR) || !lastAnalysis) {
-        setStatusBox(s2, "🎯 2R 基準狀態<br>尚未建立基準", "#e2e8f0", "#64748b", "#cbd5e1");
+    if (!Number.isFinite(referencePrice) || !Number.isFinite(referenceR) || !Number.isFinite(paramN) || paramN <= 0 || !lastAnalysis) {
+        setStatusBox(s2, "🎯 2R<br>尚未建立", "#e2e8f0", "#64748b", "#cbd5e1");
         return;
     }
 
+    var oneR = referenceR * paramN;
+
     if (!Number.isFinite(plus2R)) {
-        var paramN = parseFloat(document.getElementById("param-n").value);
-        plus2R = referencePrice + referenceR * paramN * 2;
+        plus2R = referencePrice + oneR * 2;
     }
 
     if (lastAnalysis.currentClose >= plus2R) {
-        setStatusBox(s2, "🎯 2R 基準狀態<br>已達 +2R", "#fff3cd", "#856404", "#ffc107");
+        setStatusBox(s2, "🎯 2R<br>已達 +2R", "#fff3cd", "#856404", "#ffc107");
     } else {
-        var progressR = (lastAnalysis.currentClose - referencePrice) / (referenceR * lastAnalysis.paramN);
-        setStatusBox(s2, "🎯 2R 基準狀態<br>目前 " + (progressR >= 0 ? "+" : "") + progressR.toFixed(2) + "R", "#eef2ff", "#4338ca", "#a5b4fc");
+        var progressR = (lastAnalysis.currentClose - referencePrice) / oneR;
+        setStatusBox(s2, "🎯 2R<br>" + (progressR >= 0 ? "+" : "") + progressR.toFixed(2) + "R", "#eef2ff", "#4338ca", "#a5b4fc");
     }
 }
 
