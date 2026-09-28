@@ -205,7 +205,14 @@ async function analyzeTaiwanStock() {
                 stock_name: item.stock_name,
                 close: parseFloat(item.close),
                 high: parseFloat(item.max),
-                low: parseFloat(item.min)
+                low: parseFloat(item.min),
+                volume: parseFloat(
+                    item.volume != null ? item.volume :
+                    item.Trading_Volume != null ? item.Trading_Volume :
+                    item.trading_volume != null ? item.trading_volume :
+                    item.trade_volume != null ? item.trade_volume :
+                    item.TradeVolume != null ? item.TradeVolume : NaN
+                )
             };
         }).filter(function(item) {
             return item.date && Number.isFinite(item.close) && Number.isFinite(item.high) && Number.isFinite(item.low);
@@ -213,7 +220,9 @@ async function analyzeTaiwanStock() {
             return a.date.localeCompare(b.date);
         });
 
-        var required = Math.max(maLongPeriod, maShortPeriod) + 1;
+        var breakoutPeriod = 20;
+        var volumePeriod = 20;
+        var required = Math.max(maLongPeriod + 1, maShortPeriod + 1, breakoutPeriod + 1, volumePeriod + 1);
         if (validData.length < required) {
             throw new Error("歷史資料不足，至少需要 " + required + " 個交易日資料");
         }
@@ -236,7 +245,35 @@ async function analyzeTaiwanStock() {
 
         var maShort = calculateSMA(closeArr, len - 1, maShortPeriod);
         var maLong = calculateSMA(closeArr, len - 1, maLongPeriod);
+        var maShortPrev = calculateSMA(closeArr, len - 2, maShortPeriod);
+        var maLongPrev = calculateSMA(closeArr, len - 2, maLongPeriod);
+
         var isBullish = currentClose > maShort && maShort > maLong;
+        var isShortMARising = Number.isFinite(maShortPrev) && maShort > maShortPrev;
+        var isLongMANotFalling = Number.isFinite(maLongPrev) && maLong >= maLongPrev;
+        var isStrengthening = isBullish && isShortMARising && isLongMANotFalling;
+
+        var priorBreakoutSlice = validData.slice(Math.max(0, len - 1 - breakoutPeriod), len - 1);
+        var priorHigh20 = priorBreakoutSlice.length
+            ? Math.max.apply(null, priorBreakoutSlice.map(function(d) { return d.high; }))
+            : null;
+        var isPriceBreakout = Number.isFinite(priorHigh20) && currentClose > priorHigh20;
+
+        var priorVolumeSlice = validData
+            .slice(Math.max(0, len - 1 - volumePeriod), len - 1)
+            .filter(function(d) { return Number.isFinite(d.volume) && d.volume > 0; });
+        var avgVolume20 = priorVolumeSlice.length === volumePeriod
+            ? priorVolumeSlice.reduce(function(sum, d) { return sum + d.volume; }, 0) / priorVolumeSlice.length
+            : null;
+        var currentVolume = Number.isFinite(latest.volume) && latest.volume > 0 ? latest.volume : null;
+        var volumeRatio = currentVolume && avgVolume20 ? currentVolume / avgVolume20 : null;
+        var isVolumeConfirmed = Number.isFinite(volumeRatio) && volumeRatio >= 1.3;
+        var isBreakoutCandidate = isStrengthening && isPriceBreakout && isVolumeConfirmed;
+
+        var trendStage = "未成立";
+        if (isBullish) trendStage = "多頭排列";
+        if (isStrengthening) trendStage = "多頭轉強";
+        if (isBreakoutCandidate) trendStage = "突破候選";
 
         var riskDistance = Number((R * paramN).toFixed(2));
         var rawReferenceDefense = currentClose - riskDistance;
@@ -262,8 +299,12 @@ async function analyzeTaiwanStock() {
         var s3 = document.getElementById("status-3");
         resetStatusBox(s1); resetStatusBox(s2); resetStatusBox(s3);
 
-        if (isBullish) {
-            setStatusBox(s1, "📈 趨勢<br>多頭成立", "#dff9fb", "#0984e3", "#74b9ff");
+        if (isBreakoutCandidate) {
+            setStatusBox(s1, "🚀 趨勢<br>突破候選", "#fff3e0", "#c2410c", "#fb923c");
+        } else if (isStrengthening) {
+            setStatusBox(s1, "📈 趨勢<br>多頭轉強", "#e8f5e9", "#2e7d32", "#81c784");
+        } else if (isBullish) {
+            setStatusBox(s1, "📈 趨勢<br>多頭排列", "#dff9fb", "#0984e3", "#74b9ff");
         } else {
             setStatusBox(s1, "📉 趨勢<br>未成立", "#eef2f7", "#475569", "#94a3b8");
         }
@@ -289,6 +330,20 @@ async function analyzeTaiwanStock() {
         document.getElementById("report-title-right").textContent =
             "💼 【" + stockId + " " + stockName + "】今日動態風控空間";
 
+        var volumeText = Number.isFinite(volumeRatio)
+            ? volumeRatio.toFixed(2) + " 倍 20日均量"
+            : "API 未提供足夠成交量資料";
+        var trendDetail =
+            "<div style=\"margin-top:14px;padding:12px;border-radius:6px;background:#f8fafc;border-left:5px solid #64748b;line-height:1.7;\">" +
+            "<b>趨勢分級：" + trendStage + "</b><br>" +
+            (isBullish ? "✅" : "⬜") + " 多頭排列：Close > MA" + maShortPeriod + " > MA" + maLongPeriod + "<br>" +
+            (isShortMARising ? "✅" : "⬜") + " MA" + maShortPeriod + " 上升：" + maShort + " > 前一日 " + (Number.isFinite(maShortPrev) ? maShortPrev : "N/A") + "<br>" +
+            (isLongMANotFalling ? "✅" : "⬜") + " MA" + maLongPeriod + " 不下降：" + maLong + " ≥ 前一日 " + (Number.isFinite(maLongPrev) ? maLongPrev : "N/A") + "<br>" +
+            (isPriceBreakout ? "✅" : "⬜") + " 價格突破：收盤 " + currentClose + " > 前 " + breakoutPeriod + " 日最高價 " + (Number.isFinite(priorHigh20) ? priorHigh20.toFixed(2) : "N/A") + "<br>" +
+            (isVolumeConfirmed ? "✅" : "⬜") + " 量能確認：" + volumeText + "（門檻 ≥ 1.30 倍）" +
+            "<div class=\"metric-note\">「突破候選」必須同時符合多頭轉強、收盤突破前 20 個交易日最高價，以及成交量至少為前 20 日平均量的 1.3 倍。</div>" +
+            "</div>";
+
         document.getElementById("technical-data").innerHTML =
             "• <b>最新收盤價：</b> <span class=\"text-bullish highlight\">" + currentClose + "</span> 元<br>" +
             "• <b>" + maShortPeriod + " 日均線：</b> " + maShort + " 元<br>" +
@@ -297,7 +352,8 @@ async function analyzeTaiwanStock() {
             "• <b>現價距長均線：</b> " + (maLongBias >= 0 ? "+" : "") + maLongBias + "%<br>" +
             "• <b>今日 True Range：</b> " + todayTrueRange + " 元<br>" +
             "• <b>" + maShortPeriod + " 日平均 True Range (R)：</b> <span class=\"text-bullish\">" + R + "</span> 元" +
-            "<div class=\"metric-note\">R 為最近 " + maShortPeriod + " 個 TR 的簡單平均，不等同 Wilder 平滑 ATR。</div>";
+            "<div class=\"metric-note\">R 為最近 " + maShortPeriod + " 個 TR 的簡單平均，不等同 Wilder 平滑 ATR。</div>" +
+            trendDetail;
 
         document.getElementById("risk-data").innerHTML =
             "• <b>風控倍數 N：</b> " + paramN + " 倍<br>" +
