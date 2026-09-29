@@ -3,7 +3,11 @@
   "name": "taiwan-market-scanner",
   "main": "src/index.js",
   "compatibility_date": "2026-09-29",
-  "workers_dev": true,\n  "observability": {\n    "enabled": true,\n    "head_sampling_rate": 1\n  },
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
   "triggers": {
     "crons": ["*/5 * * * *", "0 9 * * *"]
   },
