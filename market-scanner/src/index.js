@@ -25,6 +25,10 @@ export default {
         return handleScan(url, env);
       }
 
+      if (url.pathname === "/api/backfill-status" && request.method === "GET") {
+        return json({ ok: true, ...(await getBackfillStatus(env)) });
+      }
+
       if (url.pathname === "/admin/update" && request.method === "POST") {
         requireAdmin(request, env);
         const date = url.searchParams.get("date") || taipeiToday();
@@ -45,6 +49,7 @@ export default {
         endpoints: {
           health: "GET /health",
           scan: "GET /api/scan?stage=BREAKOUT_CANDIDATE&limit=100",
+          backfill_status: "GET /api/backfill-status",
           update: "POST /admin/update?date=YYYY-MM-DD",
           backfill: "POST /admin/backfill?days=10&before=YYYY-MM-DD"
         }
@@ -55,8 +60,24 @@ export default {
     }
   },
 
-  async scheduled(_event, env, ctx) {
-    ctx.waitUntil(updateOneDate(env, taipeiToday()));
+  async scheduled(controller, env) {
+    if (controller.cron === "*/5 * * * *") {
+      const status = await getBackfillStatus(env);
+      if (status.trading_days >= 60) {
+        console.log(JSON.stringify({ event: "backfill_complete", ...status }));
+        return;
+      }
+
+      const before = status.earliest_trade_date
+        ? addDays(status.earliest_trade_date, -1)
+        : taipeiToday();
+      const result = await backfillTradingDays(env, 5, before);
+      console.log(JSON.stringify({ event: "backfill_batch", before, ...result }));
+      return;
+    }
+
+    const result = await updateOneDate(env, taipeiToday());
+    console.log(JSON.stringify({ event: "daily_update", ...result }));
   }
 };
 
@@ -357,6 +378,24 @@ async function backfillTradingDays(env, requestedDays, beforeDate) {
   };
 }
 
+async function getBackfillStatus(env) {
+  const row = await env.DB.prepare(`
+    SELECT
+      COUNT(DISTINCT trade_date) AS trading_days,
+      MIN(trade_date) AS earliest_trade_date,
+      MAX(trade_date) AS latest_trade_date,
+      COUNT(*) AS price_rows
+    FROM daily_prices
+  `).first();
+
+  return {
+    trading_days: Number(row?.trading_days || 0),
+    earliest_trade_date: row?.earliest_trade_date || null,
+    latest_trade_date: row?.latest_trade_date || null,
+    price_rows: Number(row?.price_rows || 0)
+  };
+}
+
 function sma(values, period, endIndex) {
   if (endIndex < period - 1) return null;
   let total = 0;
@@ -373,7 +412,14 @@ async function rebuildScannerForDate(env, tradeDate) {
   const prior = await env.DB.prepare(`
     SELECT market, stock_id, stock_name, trade_date, open, high, low, close, volume
     FROM daily_prices
-    WHERE trade_date <= ?
+    WHERE trade_date IN (
+      SELECT trade_date
+      FROM daily_prices
+      WHERE trade_date <= ?
+      GROUP BY trade_date
+      ORDER BY trade_date DESC
+      LIMIT 30
+    )
     ORDER BY stock_id ASC, trade_date ASC
   `).bind(tradeDate).all();
 
