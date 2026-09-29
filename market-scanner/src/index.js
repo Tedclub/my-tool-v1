@@ -71,8 +71,17 @@ export default {
       const before = status.earliest_trade_date
         ? addDays(status.earliest_trade_date, -1)
         : taipeiToday();
-      const result = await backfillTradingDays(env, 5, before);
-      console.log(JSON.stringify({ event: "backfill_batch", before, ...result }));
+      const result = await backfillPriceHistory(env, 5, before);
+      const nextStatus = await getBackfillStatus(env);
+      if (nextStatus.trading_days >= 60 && nextStatus.latest_trade_date) {
+        await rebuildScannerForDate(env, nextStatus.latest_trade_date);
+      }
+      console.log(JSON.stringify({
+        event: "backfill_batch",
+        before,
+        ...result,
+        status: nextStatus
+      }));
       return;
     }
 
@@ -232,13 +241,41 @@ async function fetchTpex(date) {
     "?l=zh-tw&d=" + encodeURIComponent(toRocDate(date)) +
     "&se=EW&o=json";
 
-  const res = await fetch(url, {
-    headers: {
-      "Accept": "application/json",
-      "User-Agent": "taiwan-market-scanner/1.0"
+  let res = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      res = await fetch(url, {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "taiwan-market-scanner/1.0"
+        }
+      });
+      if (res.ok) break;
+      console.warn(JSON.stringify({
+        event: "tpex_fetch_retry",
+        date,
+        attempt,
+        status: res.status
+      }));
+    } catch (error) {
+      console.warn(JSON.stringify({
+        event: "tpex_fetch_retry",
+        date,
+        attempt,
+        error: error.message || String(error)
+      }));
     }
-  });
-  if (!res.ok) throw new Error("TPEx HTTP " + res.status);
+    await new Promise(resolve => setTimeout(resolve, attempt * 500));
+  }
+
+  if (!res || !res.ok) {
+    console.error(JSON.stringify({
+      event: "tpex_fetch_skipped",
+      date,
+      status: res?.status || null
+    }));
+    return [];
+  }
 
   const body = await res.json();
   const table = pickMarketTable(body);
@@ -378,13 +415,52 @@ async function backfillTradingDays(env, requestedDays, beforeDate) {
   };
 }
 
+async function backfillPriceHistory(env, requestedDays, beforeDate) {
+  let cursor = beforeDate;
+  let tradingDays = 0;
+  let calendarAttempts = 0;
+  const maxCalendarAttempts = requestedDays * 3 + 10;
+  const dates = [];
+
+  while (tradingDays < requestedDays && calendarAttempts < maxCalendarAttempts) {
+    const [twse, tpex] = await Promise.all([
+      fetchTwse(cursor),
+      fetchTpex(cursor)
+    ]);
+    const rows = [...twse, ...tpex];
+    calendarAttempts++;
+
+    if (rows.length) {
+      const inserted = await insertPrices(env, rows);
+      tradingDays++;
+      dates.push({
+        date: cursor,
+        inserted,
+        by_market: { TWSE: twse.length, TPEX: tpex.length }
+      });
+    }
+
+    cursor = addDays(cursor, -1);
+  }
+
+  return {
+    ok: true,
+    requested_trading_days: requestedDays,
+    completed_trading_days: tradingDays,
+    dates,
+    next_before: cursor
+  };
+}
+
 async function getBackfillStatus(env) {
   const row = await env.DB.prepare(`
     SELECT
       COUNT(DISTINCT trade_date) AS trading_days,
       MIN(trade_date) AS earliest_trade_date,
       MAX(trade_date) AS latest_trade_date,
-      COUNT(*) AS price_rows
+      COUNT(*) AS price_rows,
+      COUNT(DISTINCT CASE WHEN market = 'TWSE' THEN trade_date END) AS twse_trading_days,
+      COUNT(DISTINCT CASE WHEN market = 'TPEX' THEN trade_date END) AS tpex_trading_days
     FROM daily_prices
   `).first();
 
@@ -392,7 +468,9 @@ async function getBackfillStatus(env) {
     trading_days: Number(row?.trading_days || 0),
     earliest_trade_date: row?.earliest_trade_date || null,
     latest_trade_date: row?.latest_trade_date || null,
-    price_rows: Number(row?.price_rows || 0)
+    price_rows: Number(row?.price_rows || 0),
+    twse_trading_days: Number(row?.twse_trading_days || 0),
+    tpex_trading_days: Number(row?.tpex_trading_days || 0)
   };
 }
 
