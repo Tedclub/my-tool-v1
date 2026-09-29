@@ -245,6 +245,7 @@ async function fetchTpex(date) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       res = await fetch(url, {
+        redirect: "manual",
         headers: {
           "Accept": "application/json",
           "User-Agent": "taiwan-market-scanner/1.0"
@@ -277,7 +278,23 @@ async function fetchTpex(date) {
     return [];
   }
 
-  const body = await res.json();
+  let body;
+  try {
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("json")) {
+      throw new Error(`unexpected content type: ${contentType || "unknown"}`);
+    }
+    body = await res.json();
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "tpex_fetch_skipped",
+      date,
+      status: res.status,
+      error: error.message || String(error)
+    }));
+    return [];
+  }
+
   const table = pickMarketTable(body);
   if (!table || !Array.isArray(table.data)) return [];
 
