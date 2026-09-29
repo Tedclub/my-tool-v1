@@ -11,7 +11,7 @@
     {
       "binding": "DB",
       "database_name": "taiwan-market-data",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "40b89ca6-9f60-4bd3-b63b-3204482e6852"
     }
   ]
 }
