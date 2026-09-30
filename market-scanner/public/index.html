@@ -87,7 +87,7 @@
 
         <div class="notice" id="marketNotice" hidden>
           <span class="notice-icon">!</span>
-          <p><strong>上櫃資料回補中</strong><br>目前歷史天數不足，MA20 與突破訊號尚不具完整參考性。</p>
+          <p><strong>上櫃資料回補中</strong><br>完成 60 個交易日前，TPEx 的還原價格與 RS 排名會逐日補齊。</p>
         </div>
 
         <div class="table-head">
@@ -98,6 +98,7 @@
           <label class="sort-wrap">
             <span>排序</span>
             <select id="sortFilter">
+              <option value="rs">RS 排名最高</option>
               <option value="volume">量比最高</option>
               <option value="risk">風險較低</option>
               <option value="code">股票代號</option>
@@ -130,9 +131,11 @@
                   <th>股票</th>
                   <th>市場</th>
                   <th>收盤價</th>
-                  <th>MA5 / MA20</th>
+                  <th>RS 排名</th>
+                  <th>成交金額</th>
+                  <th>MA20 乖離</th>
+                  <th>距前高</th>
                   <th>量比</th>
-                  <th>R5</th>
                   <th>風險</th>
                   <th>訊號</th>
                 </tr>
@@ -145,11 +148,12 @@
       </section>
 
       <section class="legend">
-        <h2>訊號怎麼看</h2>
-        <div class="legend-grid">
-          <article><span class="legend-number">01</span><div><strong>多頭排列</strong><p>收盤價高於 MA5，且 MA5 高於 MA20。</p></div></article>
-          <article><span class="legend-number">02</span><div><strong>多頭轉強</strong><p>均線維持多頭，短中期均線同步增強。</p></div></article>
-          <article><span class="legend-number">03</span><div><strong>突破候選</strong><p>價格突破前高，且成交量達 20 日均量 1.3 倍。</p></div></article>
+        <h2>規則與階段</h2>
+        <div class="legend-grid rules-grid">
+          <article><span class="legend-number">01</span><div><strong>固定品質濾網</strong><p>只納入普通股；成交金額至少 2,000 萬元；MA20 正乖離不超過 15%；排除處置、變更交易，以及漲停且無賣單的股票。</p></div></article>
+          <article><span class="legend-number">02</span><div><strong>RS 20 日排名</strong><p>個股 20 日還原報酬減去所屬市場指數報酬，再於上市或上櫃市場內計算百分位；100 代表相對最強。</p></div></article>
+          <article><span class="legend-number">03</span><div><strong>階段為遞進關係</strong><p>多頭排列：收盤 &gt; MA5 &gt; MA20。多頭轉強：再加 MA5 上升且 MA20 不下降。突破候選：再加收盤突破前 20 日最高價且量比 ≥ 1.3。</p></div></article>
+          <article><span class="legend-number">04</span><div><strong>價格與風險公式</strong><p>均線、前高與 RS 使用交易所參考價回推的還原權息價格。風險＝2 × 近 5 日平均真實波幅 ÷ 收盤價。</p></div></article>
         </div>
         <p class="disclaimer">掃描結果為技術條件分類，不構成投資建議。投資前請自行評估風險。</p>
       </section>

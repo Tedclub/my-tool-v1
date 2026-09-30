@@ -2,7 +2,7 @@ const state = {
   stage: "BREAKOUT_CANDIDATE",
   market: "",
   query: "",
-  sort: "volume",
+  sort: "rs",
   rows: [],
   status: null,
   loading: false
@@ -43,6 +43,13 @@ function number(value, digits = 2) {
     : "—";
 }
 
+function money(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "—";
+  if (parsed >= 100_000_000) return `${number(parsed / 100_000_000, 1)} 億`;
+  return `${number(parsed / 10_000, 0)} 萬`;
+}
+
 function riskClass(value) {
   const risk = Number(value);
   if (!Number.isFinite(risk)) return "";
@@ -62,6 +69,9 @@ function signalClass(stage) {
 
 function sortedRows() {
   return [...state.rows].sort((a, b) => {
+    if (state.sort === "rs") {
+      return (Number(b.rs_rank) || -1) - (Number(a.rs_rank) || -1);
+    }
     if (state.sort === "risk") {
       return (Number(a.risk_percent) || Infinity) - (Number(b.risk_percent) || Infinity);
     }
@@ -78,9 +88,11 @@ function tableRow(row) {
       <td class="stock-cell"><strong>${escapeHtml(row.stock_name)}</strong><span>${escapeHtml(row.stock_id)}</span></td>
       <td><span class="market-badge">${row.market === "TPEX" ? "上櫃" : "上市"}</span></td>
       <td class="metric-secondary">${number(row.close)}</td>
-      <td><span class="metric-primary">${number(row.ma5)}</span> <span class="metric-secondary">/ ${number(row.ma20)}</span></td>
+      <td class="metric-primary">${number(row.rs_rank, 1)}</td>
+      <td class="metric-secondary">${money(row.amount)}</td>
+      <td class="${riskClass(row.ma20_deviation_percent)}">${number(row.ma20_deviation_percent)}%</td>
+      <td class="metric-secondary">${number(row.distance_to_20d_high_percent)}%</td>
       <td class="metric-primary">${number(row.volume_ratio)}×</td>
-      <td class="metric-secondary">${number(row.r5)}</td>
       <td class="${riskClass(row.risk_percent)}">${number(row.risk_percent)}%</td>
       <td><span class="signal-badge ${signalClass(row.trend_stage)}">${signalNames[row.trend_stage] || row.trend_stage}</span></td>
     </tr>`;
@@ -95,7 +107,9 @@ function stockCard(row) {
       </div>
       <div class="card-price"><span>收盤價</span><strong>${number(row.close)}</strong></div>
       <div class="card-metrics">
-        <div class="card-metric"><span>MA5 / MA20</span><strong>${number(row.ma5)} / ${number(row.ma20)}</strong></div>
+        <div class="card-metric"><span>RS 排名</span><strong class="metric-primary">${number(row.rs_rank, 1)}</strong></div>
+        <div class="card-metric"><span>成交金額</span><strong>${money(row.amount)}</strong></div>
+        <div class="card-metric"><span>MA20 乖離</span><strong>${number(row.ma20_deviation_percent)}%</strong></div>
         <div class="card-metric"><span>量比</span><strong class="metric-primary">${number(row.volume_ratio)}×</strong></div>
         <div class="card-metric"><span>風險</span><strong class="${riskClass(row.risk_percent)}">${number(row.risk_percent)}%</strong></div>
       </div>
@@ -113,20 +127,22 @@ function render() {
   const hasRows = rows.length > 0;
   els.results.hidden = !hasRows || state.loading;
   els.emptyState.hidden = hasRows || state.loading;
-  els.marketNotice.hidden = Number(state.status?.tpex_trading_days || 0) >= 21;
+  els.marketNotice.hidden = Number(state.status?.tpex_trading_days || 0) >= 60;
 }
 
 function renderStatus(scan) {
   const status = state.status || {};
   const twseDays = Number(status.twse_trading_days || 0);
   const tpexDays = Number(status.tpex_trading_days || 0);
+  const twseReady = Number(status.twse_adjusted_days || 0) >= 21 && Number(status.twse_index_days || 0) >= 21;
+  const tpexReady = Number(status.tpex_adjusted_days || 0) >= 60 && Number(status.tpex_index_days || 0) >= 21;
   els.tradeDate.textContent = scan.trade_date || status.latest_trade_date || "—";
   els.twseDays.textContent = number(twseDays, 0);
   els.tpexDays.textContent = number(tpexDays, 0);
-  els.twseState.textContent = twseDays >= 21 ? "指標資料完整" : "資料累積中";
-  els.twseState.className = twseDays >= 21 ? "complete" : "pending";
-  els.tpexState.textContent = tpexDays >= 21 ? "指標資料完整" : "歷史資料回補中";
-  els.tpexState.className = tpexDays >= 21 ? "complete" : "pending";
+  els.twseState.textContent = twseReady ? "還原價格與 RS 完整" : "品質資料補建中";
+  els.twseState.className = twseReady ? "complete" : "pending";
+  els.tpexState.textContent = tpexReady ? "還原價格與 RS 完整" : "歷史資料回補中";
+  els.tpexState.className = tpexReady ? "complete" : "pending";
   els.lastUpdated.textContent = `資料日期 ${scan.trade_date || "—"} · 顯示最多 500 筆`;
 }
 

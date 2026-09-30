@@ -48,6 +48,7 @@ function mockDb({
   latestTradeDate = null,
   latestScannerDate = null,
   priceHistory = [],
+  indexHistory = [],
   scannerResults = []
 } = {}) {
   const calls = [];
@@ -73,6 +74,9 @@ function mockDb({
         calls.push({ type: "all", sql: normalized, binds });
         if (normalized.includes("FROM daily_prices") && normalized.includes("ORDER BY stock_id")) {
           return { results: priceHistory };
+        }
+        if (normalized.includes("FROM market_indices")) {
+          return { results: indexHistory };
         }
         if (normalized.includes("FROM scanner_results")) {
           return { results: scannerResults };
@@ -111,7 +115,7 @@ test("admin backfill writes only price history and returns next_before", async (
     assert.equal(body.scanner_rows, 0);
     assert.equal(body.next_before, "2026-09-28");
     assert.ok(DB.calls.some(call => call.sql?.includes("INSERT INTO daily_prices")));
-    assert.ok(!DB.calls.some(call => call.sql?.includes("scanner_results")));
+    assert.ok(!DB.calls.some(call => call.sql?.includes("INSERT INTO scanner_results")));
   } finally {
     restoreFetch();
   }
@@ -188,12 +192,24 @@ test("scanner rebuild preserves the existing breakout rules", async () => {
       high: close,
       low: close - 2,
       close,
-      volume: index === 20 ? 2000 : 1000
+      volume: index === 20 ? 2000 : 1000,
+      amount: 50_000_000,
+      reference_price: index === 0 ? null : close - 1,
+      last_ask_price: close + 0.5,
+      last_ask_volume: 10,
+      security_type: "COMMON_STOCK",
+      is_restricted: 0
     };
   });
+  const indexHistory = Array.from({ length: 21 }, (_, index) => ({
+    market: "TWSE",
+    trade_date: `2026-09-${String(index + 1).padStart(2, "0")}`,
+    close: 1000 + index
+  }));
   const DB = mockDb({
     latestTradeDate: "2026-09-21",
-    priceHistory
+    priceHistory,
+    indexHistory
   });
 
   const response = await worker.fetch(request("/admin/rebuild-latest"), { DB, ADMIN_TOKEN });
@@ -201,17 +217,19 @@ test("scanner rebuild preserves the existing breakout rules", async () => {
   const scannerInsert = DB.calls.find(call =>
     call.type === "prepare" &&
     call.sql?.includes("INSERT INTO scanner_results") &&
-    call.binds.length === 19
+    call.binds.length === 31
   );
 
   assert.equal(response.status, 200);
   assert.equal(body.scanner_rows, 1);
   assert.ok(scannerInsert);
-  assert.equal(scannerInsert.binds[14], 1, "Close > MA5 > MA20");
-  assert.equal(scannerInsert.binds[15], 1, "MA5 rises and MA20 does not fall");
-  assert.equal(scannerInsert.binds[16], 1, "Close exceeds the prior 20-day high");
-  assert.equal(scannerInsert.binds[17], 1, "volume ratio is at least 1.3");
-  assert.equal(scannerInsert.binds[18], "BREAKOUT_CANDIDATE");
+  assert.equal(scannerInsert.binds[22], 1, "turnover passes the liquidity filter");
+  assert.equal(scannerInsert.binds[25], 1, "row is eligible after quality filters");
+  assert.equal(scannerInsert.binds[26], 1, "Close > MA5 > MA20");
+  assert.equal(scannerInsert.binds[27], 1, "MA5 rises and MA20 does not fall");
+  assert.equal(scannerInsert.binds[28], 1, "Close exceeds the prior 20-day high");
+  assert.equal(scannerInsert.binds[29], 1, "volume ratio is at least 1.3");
+  assert.equal(scannerInsert.binds[30], "BREAKOUT_CANDIDATE");
 });
 
 test("scan search uses bound parameters for stock id or name", async () => {

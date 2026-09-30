@@ -312,6 +312,7 @@ tbody tr:hover { background: rgba(99,230,167,.035); }
 .legend { padding: 38px 8px 0; }
 .legend h2 { margin: 0 0 18px; font-size: 17px; }
 .legend-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.rules-grid { grid-template-columns: repeat(2, 1fr); }
 .legend-grid article {
   display: flex;
   gap: 14px;
@@ -369,8 +370,8 @@ tbody tr:hover { background: rgba(99,230,167,.035); }
   .card-price { padding-bottom: 13px; border-bottom: 1px solid var(--line); }
   .card-price span, .card-metric span { color: var(--muted); font-size: 11px; }
   .card-price strong { font-size: 20px; }
-  .card-metrics { margin-top: 13px; }
-  .card-metric { display: grid; gap: 4px; }
+  .card-metrics { margin-top: 13px; flex-wrap: wrap; }
+  .card-metric { display: grid; flex: 1 1 28%; gap: 4px; }
   .card-metric strong { font-size: 13px; }
   .legend { padding-top: 30px; }
   .legend-grid { grid-template-columns: 1fr; }

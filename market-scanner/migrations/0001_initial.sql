@@ -10,11 +10,6 @@ CREATE TABLE IF NOT EXISTS daily_prices (
   volume INTEGER NOT NULL,
   amount INTEGER,
   transactions INTEGER,
-  reference_price REAL,
-  last_ask_price REAL,
-  last_ask_volume INTEGER,
-  security_type TEXT NOT NULL DEFAULT 'COMMON_STOCK',
-  is_restricted INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (market, stock_id, trade_date)
 );
 
@@ -23,9 +18,6 @@ CREATE INDEX IF NOT EXISTS idx_daily_prices_date
 
 CREATE INDEX IF NOT EXISTS idx_daily_prices_stock_date
   ON daily_prices (stock_id, trade_date DESC);
-
-CREATE INDEX IF NOT EXISTS idx_daily_prices_market_date
-  ON daily_prices (market, trade_date DESC);
 
 CREATE TABLE IF NOT EXISTS scanner_results (
   trade_date TEXT NOT NULL,
@@ -42,18 +34,6 @@ CREATE TABLE IF NOT EXISTS scanner_results (
   volume_ratio REAL,
   r5 REAL,
   risk_percent REAL,
-  amount INTEGER,
-  ma20_deviation_percent REAL,
-  distance_to_20d_high_percent REAL,
-  stock_return_20_percent REAL,
-  benchmark_return_20_percent REAL,
-  rs_excess_20_percent REAL,
-  rs_rank REAL,
-  adjusted_price_used INTEGER NOT NULL DEFAULT 0,
-  is_liquid INTEGER NOT NULL DEFAULT 0,
-  is_limit_up_locked INTEGER NOT NULL DEFAULT 0,
-  is_restricted INTEGER NOT NULL DEFAULT 0,
-  eligible INTEGER NOT NULL DEFAULT 1,
   bullish_alignment INTEGER NOT NULL DEFAULT 0,
   strengthening INTEGER NOT NULL DEFAULT 0,
   price_breakout INTEGER NOT NULL DEFAULT 0,
@@ -67,17 +47,3 @@ CREATE INDEX IF NOT EXISTS idx_scanner_results_date_stage
 
 CREATE INDEX IF NOT EXISTS idx_scanner_results_volume_ratio
   ON scanner_results (trade_date DESC, volume_ratio DESC);
-
-CREATE INDEX IF NOT EXISTS idx_scanner_results_date_eligible_rs
-  ON scanner_results (trade_date DESC, eligible, rs_rank DESC);
-
-CREATE TABLE IF NOT EXISTS market_indices (
-  market TEXT NOT NULL,
-  trade_date TEXT NOT NULL,
-  index_name TEXT NOT NULL,
-  close REAL NOT NULL,
-  PRIMARY KEY (market, trade_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_market_indices_date
-  ON market_indices (trade_date DESC, market);

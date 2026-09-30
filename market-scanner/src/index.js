@@ -5,6 +5,10 @@ const CORS = {
 };
 
 const BACKFILL_MAX_TRADING_DAYS = 10;
+const MIN_TURNOVER = 20_000_000;
+const MAX_MA20_DEVIATION_PERCENT = 15;
+const RS_PERIOD = 20;
+const TARGET_HISTORY_DAYS = 60;
 
 export default {
   async fetch(request, env) {
@@ -14,6 +18,7 @@ export default {
 
     try {
       const url = new URL(request.url);
+      await ensureSchema(env);
 
       if (url.pathname === "/health") {
         return json({
@@ -74,25 +79,38 @@ export default {
   },
 
   async scheduled(controller, env) {
-    if (controller.cron === "*/5 * * * *") {
+    await ensureSchema(env);
+    if (controller.cron === "*/30 * * * *") {
       const status = await getBackfillStatus(env);
-      if (status.trading_days >= 60) {
-        const rebuild = await rebuildLatestScannerIfNeeded(env, status.latest_trade_date);
+      if (
+        status.tpex_trading_days >= TARGET_HISTORY_DAYS &&
+        status.twse_adjusted_days >= TARGET_HISTORY_DAYS &&
+        status.twse_index_days >= TARGET_HISTORY_DAYS &&
+        status.tpex_index_days >= TARGET_HISTORY_DAYS
+      ) {
+        const rebuild = status.latest_rs_rows > 0
+          ? { rebuilt: false, reason: "quality_metrics_current" }
+          : await rebuildLatestScanner(env);
         console.log(JSON.stringify({ event: "backfill_complete", ...status, rebuild }));
         return;
       }
 
-      const before = status.earliest_trade_date
-        ? addDays(status.earliest_trade_date, -1)
-        : taipeiToday();
-      const result = await backfillPriceHistory(env, 5, before);
+      const scheduledAt = new Date(controller.scheduledTime || Date.now());
+      if (scheduledAt.getUTCMinutes() !== 0 || scheduledAt.getUTCHours() >= 10) return;
+
+      const result = await backfillMissingHistory(env, 1);
       const nextStatus = await getBackfillStatus(env);
-      if (nextStatus.trading_days >= 60 && nextStatus.latest_trade_date) {
-        await rebuildLatestScannerIfNeeded(env, nextStatus.latest_trade_date);
+      if (
+        nextStatus.tpex_trading_days >= TARGET_HISTORY_DAYS &&
+        nextStatus.twse_adjusted_days >= TARGET_HISTORY_DAYS &&
+        nextStatus.twse_index_days >= TARGET_HISTORY_DAYS &&
+        nextStatus.tpex_index_days >= TARGET_HISTORY_DAYS &&
+        nextStatus.latest_trade_date
+      ) {
+        if (nextStatus.latest_rs_rows === 0) await rebuildLatestScanner(env);
       }
       console.log(JSON.stringify({
         event: "backfill_batch",
-        before,
         ...result,
         status: nextStatus
       }));
@@ -103,6 +121,78 @@ export default {
     console.log(JSON.stringify({ event: "daily_update", ...result }));
   }
 };
+
+async function ensureSchema(env) {
+  const sentinel = await env.DB.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'market_indices'"
+  ).first();
+  if (sentinel?.name === "market_indices") return;
+
+  const dailyColumns = new Set(((await env.DB.prepare("PRAGMA table_info(daily_prices)").all()).results || [])
+    .map(row => row.name));
+  const scannerColumns = new Set(((await env.DB.prepare("PRAGMA table_info(scanner_results)").all()).results || [])
+    .map(row => row.name));
+
+  const statements = [];
+  const addColumn = (table, columns, name, definition) => {
+    if (!columns.has(name)) statements.push(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  };
+
+  addColumn("daily_prices", dailyColumns, "reference_price", "REAL");
+  addColumn("daily_prices", dailyColumns, "last_ask_price", "REAL");
+  addColumn("daily_prices", dailyColumns, "last_ask_volume", "INTEGER");
+  addColumn("daily_prices", dailyColumns, "security_type", "TEXT NOT NULL DEFAULT 'COMMON_STOCK'");
+  addColumn("daily_prices", dailyColumns, "is_restricted", "INTEGER NOT NULL DEFAULT 0");
+
+  addColumn("scanner_results", scannerColumns, "amount", "INTEGER");
+  addColumn("scanner_results", scannerColumns, "ma20_deviation_percent", "REAL");
+  addColumn("scanner_results", scannerColumns, "distance_to_20d_high_percent", "REAL");
+  addColumn("scanner_results", scannerColumns, "stock_return_20_percent", "REAL");
+  addColumn("scanner_results", scannerColumns, "benchmark_return_20_percent", "REAL");
+  addColumn("scanner_results", scannerColumns, "rs_excess_20_percent", "REAL");
+  addColumn("scanner_results", scannerColumns, "rs_rank", "REAL");
+  addColumn("scanner_results", scannerColumns, "adjusted_price_used", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("scanner_results", scannerColumns, "is_liquid", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("scanner_results", scannerColumns, "is_limit_up_locked", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("scanner_results", scannerColumns, "is_restricted", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("scanner_results", scannerColumns, "eligible", "INTEGER NOT NULL DEFAULT 1");
+
+  for (const sql of statements) {
+    try {
+      await env.DB.prepare(sql).run();
+    } catch (error) {
+      if (!String(error.message || error).toLowerCase().includes("duplicate column")) throw error;
+    }
+  }
+
+  await env.DB.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_daily_prices_market_date ON daily_prices (market, trade_date DESC)"
+  ).run();
+  await env.DB.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_scanner_results_date_eligible_rs ON scanner_results (trade_date DESC, eligible, rs_rank DESC)"
+  ).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS d1_migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT UNIQUE,
+      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+    )
+  `).run();
+  await env.DB.prepare("INSERT OR IGNORE INTO d1_migrations (name) VALUES ('0001_initial.sql')").run();
+  await env.DB.prepare("INSERT OR IGNORE INTO d1_migrations (name) VALUES ('0002_scanner_quality.sql')").run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS market_indices (
+      market TEXT NOT NULL,
+      trade_date TEXT NOT NULL,
+      index_name TEXT NOT NULL,
+      close REAL NOT NULL,
+      PRIMARY KEY (market, trade_date)
+    )
+  `).run();
+  await env.DB.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_market_indices_date ON market_indices (trade_date DESC, market)"
+  ).run();
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -175,6 +265,18 @@ function cleanText(value) {
     .trim();
 }
 
+function signedChange(sign, value) {
+  const amount = n(value);
+  if (!Number.isFinite(amount)) return null;
+  return cleanText(sign).includes("-") ? -Math.abs(amount) : Math.abs(amount);
+}
+
+function referencePrice(close, change) {
+  if (!Number.isFinite(close) || !Number.isFinite(change)) return null;
+  const value = close - change;
+  return value > 0 ? value : null;
+}
+
 function isCommonStockCode(code) {
   return /^\d{4}$/.test(code) && !code.startsWith("0") && !code.startsWith("91");
 }
@@ -195,7 +297,7 @@ function pickMarketTable(payload) {
   }) || null;
 }
 
-async function fetchTwse(date) {
+async function fetchTwse(date, restrictedCodes = new Set()) {
   const url =
     "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX" +
     "?date=" + encodeURIComponent(toTwseDate(date)) +
@@ -210,10 +312,18 @@ async function fetchTwse(date) {
   if (!res.ok) throw new Error("TWSE HTTP " + res.status);
 
   const body = await res.json();
-  if (body.stat !== "OK") return [];
+  if (body.stat !== "OK") return { prices: [], index: null };
 
   const table = pickMarketTable(body);
-  if (!table) return [];
+  if (!table) return { prices: [], index: null };
+
+  const indexTable = (body.tables || []).find(t =>
+    Array.isArray(t.fields) && t.fields.some(f => cleanText(f).includes("收盤指數"))
+  );
+  const indexRow = indexTable?.data?.find(row =>
+    cleanText(row[0]).includes("發行量加權股價指數")
+  );
+  const indexClose = indexRow ? n(indexRow[1]) : null;
 
   const fields = table.fields.map(cleanText);
   const idx = {
@@ -225,11 +335,17 @@ async function fetchTwse(date) {
     open: findFieldIndex(fields, ["開盤價", "開盤"]),
     high: findFieldIndex(fields, ["最高價", "最高"]),
     low: findFieldIndex(fields, ["最低價", "最低"]),
-    close: findFieldIndex(fields, ["收盤價", "收盤"])
+    close: findFieldIndex(fields, ["收盤價", "收盤"]),
+    sign: findFieldIndex(fields, ["漲跌(+/-)", "漲跌"]),
+    change: findFieldIndex(fields, ["漲跌價差"]),
+    ask: findFieldIndex(fields, ["最後揭示賣價", "最後賣價"]),
+    askVolume: findFieldIndex(fields, ["最後揭示賣量", "最後賣量"])
   };
 
-  return table.data.map(row => {
+  const prices = table.data.map(row => {
     const stockId = cleanText(row[idx.code]);
+    const close = n(row[idx.close]);
+    const change = signedChange(row[idx.sign], row[idx.change]);
     return {
       market: "TWSE",
       stock_id: stockId,
@@ -238,28 +354,56 @@ async function fetchTwse(date) {
       open: n(row[idx.open]),
       high: n(row[idx.high]),
       low: n(row[idx.low]),
-      close: n(row[idx.close]),
+      close,
       volume: n(row[idx.volume]),
       amount: idx.amount >= 0 ? n(row[idx.amount]) : null,
-      transactions: idx.tx >= 0 ? n(row[idx.tx]) : null
+      transactions: idx.tx >= 0 ? n(row[idx.tx]) : null,
+      reference_price: referencePrice(close, change),
+      last_ask_price: idx.ask >= 0 ? n(row[idx.ask]) : null,
+      last_ask_volume: idx.askVolume >= 0 ? n(row[idx.askVolume]) : null,
+      security_type: "COMMON_STOCK",
+      is_restricted: restrictedCodes.has(stockId) ? 1 : 0
     };
   }).filter(r =>
     isCommonStockCode(r.stock_id) &&
     [r.open, r.high, r.low, r.close, r.volume].every(Number.isFinite)
   );
+
+  return {
+    prices,
+    index: Number.isFinite(indexClose)
+      ? { market: "TWSE", trade_date: date, index_name: "發行量加權股價指數", close: indexClose }
+      : null
+  };
 }
 
-async function fetchTpex(date) {
+async function fetchTpexIndex(date, cache = new Map()) {
+  const month = date.slice(0, 7);
+  if (!cache.has(month)) {
+    const url = "https://www.tpex.org.tw/www/zh-tw/indexInfo/inx?date=" +
+      encodeURIComponent(date.replaceAll("-", "/"));
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error("TPEx index HTTP " + res.status);
+    cache.set(month, await res.json());
+  }
+  const body = cache.get(month);
+  const table = body?.tables?.[0];
+  const row = table?.data?.find(item => cleanText(item[0]).replaceAll("/", "-") === date);
+  const close = row ? n(row[4]) : null;
+  return Number.isFinite(close)
+    ? { market: "TPEX", trade_date: date, index_name: "櫃買指數", close }
+    : null;
+}
+
+async function fetchTpex(date, restrictedCodes = new Set(), indexCache = new Map()) {
   const url =
-    "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php" +
-    "?l=zh-tw&d=" + encodeURIComponent(toRocDate(date)) +
-    "&se=EW&o=json";
+    "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=" +
+    encodeURIComponent(date.replaceAll("-", "/"));
 
   let res = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       res = await fetch(url, {
-        redirect: "manual",
         headers: {
           "Accept": "application/json",
           "User-Agent": "taiwan-market-scanner/1.0"
@@ -289,7 +433,7 @@ async function fetchTpex(date) {
       date,
       status: res?.status || null
     }));
-    return [];
+    return { prices: [], index: null };
   }
 
   let body;
@@ -306,11 +450,11 @@ async function fetchTpex(date) {
       status: res.status,
       error: error.message || String(error)
     }));
-    return [];
+    return { prices: [], index: null };
   }
 
   const table = pickMarketTable(body);
-  if (!table || !Array.isArray(table.data)) return [];
+  if (!table || !Array.isArray(table.data)) return { prices: [], index: null };
 
   const fields = table.fields.map(cleanText);
   const idx = {
@@ -322,11 +466,16 @@ async function fetchTpex(date) {
     low: findFieldIndex(fields, ["最低"]),
     volume: findFieldIndex(fields, ["成交股數"]),
     amount: findFieldIndex(fields, ["成交金額"]),
-    tx: findFieldIndex(fields, ["成交筆數"])
+    tx: findFieldIndex(fields, ["成交筆數"]),
+    change: findFieldIndex(fields, ["漲跌"]),
+    ask: findFieldIndex(fields, ["最後賣價"]),
+    askVolume: findFieldIndex(fields, ["最後賣量"])
   };
 
-  return table.data.map(row => {
+  const prices = table.data.map(row => {
     const stockId = cleanText(row[idx.code]);
+    const close = n(row[idx.close]);
+    const change = n(row[idx.change]);
     return {
       market: "TPEX",
       stock_id: stockId,
@@ -335,15 +484,70 @@ async function fetchTpex(date) {
       open: n(row[idx.open]),
       high: n(row[idx.high]),
       low: n(row[idx.low]),
-      close: n(row[idx.close]),
+      close,
       volume: n(row[idx.volume]),
       amount: idx.amount >= 0 ? n(row[idx.amount]) : null,
-      transactions: idx.tx >= 0 ? n(row[idx.tx]) : null
+      transactions: idx.tx >= 0 ? n(row[idx.tx]) : null,
+      reference_price: referencePrice(close, change),
+      last_ask_price: idx.ask >= 0 ? n(row[idx.ask]) : null,
+      last_ask_volume: idx.askVolume >= 0 ? n(row[idx.askVolume]) : null,
+      security_type: "COMMON_STOCK",
+      is_restricted: restrictedCodes.has(stockId) ? 1 : 0
     };
   }).filter(r =>
     isCommonStockCode(r.stock_id) &&
     [r.open, r.high, r.low, r.close, r.volume].every(Number.isFinite)
   );
+
+  return { prices, index: await fetchTpexIndex(date, indexCache) };
+}
+
+async function fetchJsonOrEmpty(url) {
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "reference_list_skipped", url, error: error.message || String(error) }));
+    return null;
+  }
+}
+
+async function fetchRestrictedCodes(date) {
+  const [twseAltered, twseDisposal, tpexAltered, tpexDisposal] = await Promise.all([
+    fetchJsonOrEmpty("https://openapi.twse.com.tw/v1/exchangeReport/TWT85U"),
+    fetchJsonOrEmpty("https://openapi.twse.com.tw/v1/announcement/punish"),
+    fetchJsonOrEmpty("https://www.tpex.org.tw/www/zh-tw/afterTrading/chtm?date=" + encodeURIComponent(date.replaceAll("-", "/"))),
+    fetchJsonOrEmpty("https://www.tpex.org.tw/www/zh-tw/bulletin/disposal")
+  ]);
+
+  const twse = new Set();
+  for (const row of Array.isArray(twseAltered) ? twseAltered : []) {
+    if (row.Code) twse.add(cleanText(row.Code));
+  }
+  for (const row of Array.isArray(twseDisposal) ? twseDisposal : []) {
+    if (row.Code) twse.add(cleanText(row.Code));
+  }
+
+  const tpex = new Set();
+  for (const row of tpexAltered?.tables?.[0]?.data || []) {
+    if (row[0]) tpex.add(cleanText(row[0]));
+  }
+  for (const row of tpexDisposal?.tables?.[0]?.data || []) {
+    if (row[2]) tpex.add(cleanText(row[2]));
+  }
+  return { TWSE: twse, TPEX: tpex };
+}
+
+async function fetchMarketDay(date, { includeRestrictions = false, indexCache = new Map() } = {}) {
+  const restricted = includeRestrictions
+    ? await fetchRestrictedCodes(date)
+    : { TWSE: new Set(), TPEX: new Set() };
+  const [twse, tpex] = await Promise.all([
+    fetchTwse(date, restricted.TWSE),
+    fetchTpex(date, restricted.TPEX, indexCache)
+  ]);
+  return { twse, tpex };
 }
 
 async function insertPrices(env, rows) {
@@ -351,8 +555,9 @@ async function insertPrices(env, rows) {
 
   const sql = `
     INSERT INTO daily_prices
-      (market, stock_id, stock_name, trade_date, open, high, low, close, volume, amount, transactions)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (market, stock_id, stock_name, trade_date, open, high, low, close, volume, amount, transactions,
+       reference_price, last_ask_price, last_ask_volume, security_type, is_restricted)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(market, stock_id, trade_date) DO UPDATE SET
       stock_name = excluded.stock_name,
       open = excluded.open,
@@ -361,7 +566,12 @@ async function insertPrices(env, rows) {
       close = excluded.close,
       volume = excluded.volume,
       amount = excluded.amount,
-      transactions = excluded.transactions
+      transactions = excluded.transactions,
+      reference_price = excluded.reference_price,
+      last_ask_price = excluded.last_ask_price,
+      last_ask_volume = excluded.last_ask_volume,
+      security_type = excluded.security_type,
+      is_restricted = excluded.is_restricted
     WHERE stock_name IS NOT excluded.stock_name
        OR open IS NOT excluded.open
        OR high IS NOT excluded.high
@@ -370,6 +580,11 @@ async function insertPrices(env, rows) {
        OR volume IS NOT excluded.volume
        OR amount IS NOT excluded.amount
        OR transactions IS NOT excluded.transactions
+       OR reference_price IS NOT excluded.reference_price
+       OR last_ask_price IS NOT excluded.last_ask_price
+       OR last_ask_volume IS NOT excluded.last_ask_volume
+       OR security_type IS NOT excluded.security_type
+       OR is_restricted IS NOT excluded.is_restricted
   `;
 
   let total = 0;
@@ -382,7 +597,12 @@ async function insertPrices(env, rows) {
         r.open, r.high, r.low, r.close,
         Math.round(r.volume),
         Number.isFinite(r.amount) ? Math.round(r.amount) : null,
-        Number.isFinite(r.transactions) ? Math.round(r.transactions) : null
+        Number.isFinite(r.transactions) ? Math.round(r.transactions) : null,
+        Number.isFinite(r.reference_price) ? r.reference_price : null,
+        Number.isFinite(r.last_ask_price) ? r.last_ask_price : null,
+        Number.isFinite(r.last_ask_volume) ? Math.round(r.last_ask_volume) : null,
+        r.security_type || "COMMON_STOCK",
+        r.is_restricted ? 1 : 0
       )
     );
     await env.DB.batch(stmts);
@@ -391,13 +611,27 @@ async function insertPrices(env, rows) {
   return total;
 }
 
-async function updateOneDate(env, date) {
-  const [twse, tpex] = await Promise.all([
-    fetchTwse(date),
-    fetchTpex(date)
-  ]);
+async function insertMarketIndices(env, rows) {
+  const valid = rows.filter(row => row && Number.isFinite(row.close));
+  if (!valid.length) return 0;
+  const sql = `
+    INSERT INTO market_indices (market, trade_date, index_name, close)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(market, trade_date) DO UPDATE SET
+      index_name = excluded.index_name,
+      close = excluded.close
+    WHERE index_name IS NOT excluded.index_name OR close IS NOT excluded.close
+  `;
+  await env.DB.batch(valid.map(row =>
+    env.DB.prepare(sql).bind(row.market, row.trade_date, row.index_name, row.close)
+  ));
+  return valid.length;
+}
 
-  const rows = [...twse, ...tpex];
+async function updateOneDate(env, date) {
+  const { twse, tpex } = await fetchMarketDay(date, { includeRestrictions: true });
+
+  const rows = [...twse.prices, ...tpex.prices];
   if (!rows.length) {
     return {
       ok: true,
@@ -409,6 +643,7 @@ async function updateOneDate(env, date) {
   }
 
   const inserted = await insertPrices(env, rows);
+  const indices = await insertMarketIndices(env, [twse.index, tpex.index]);
   const scanned = await rebuildScannerForDate(env, date);
 
   return {
@@ -416,7 +651,8 @@ async function updateOneDate(env, date) {
     trade_date: date,
     trading_day: true,
     inserted,
-    by_market: { TWSE: twse.length, TPEX: tpex.length },
+    by_market: { TWSE: twse.prices.length, TPEX: tpex.prices.length },
+    market_indices: indices,
     scanner_rows: scanned
   };
 }
@@ -427,22 +663,21 @@ async function backfillPriceHistory(env, requestedDays, beforeDate) {
   let calendarAttempts = 0;
   const maxCalendarAttempts = requestedDays * 3 + 10;
   const dates = [];
+  const indexCache = new Map();
 
   while (tradingDays < requestedDays && calendarAttempts < maxCalendarAttempts) {
-    const [twse, tpex] = await Promise.all([
-      fetchTwse(cursor),
-      fetchTpex(cursor)
-    ]);
-    const rows = [...twse, ...tpex];
+    const { twse, tpex } = await fetchMarketDay(cursor, { indexCache });
+    const rows = [...twse.prices, ...tpex.prices];
     calendarAttempts++;
 
     if (rows.length) {
       const inserted = await insertPrices(env, rows);
+      await insertMarketIndices(env, [twse.index, tpex.index]);
       tradingDays++;
       dates.push({
         date: cursor,
         inserted,
-        by_market: { TWSE: twse.length, TPEX: tpex.length }
+        by_market: { TWSE: twse.prices.length, TPEX: tpex.prices.length }
       });
     }
 
@@ -460,6 +695,43 @@ async function backfillPriceHistory(env, requestedDays, beforeDate) {
   };
 }
 
+async function backfillMissingHistory(env, requestedDays) {
+  const existing = await env.DB.prepare(`
+    SELECT DISTINCT trade_date
+    FROM daily_prices
+    WHERE market = 'TPEX'
+    ORDER BY trade_date DESC
+    LIMIT 120
+  `).all();
+  const existingDates = new Set((existing.results || []).map(row => row.trade_date));
+  let cursor = taipeiToday();
+  let completed = 0;
+  let attempts = 0;
+  const dates = [];
+  const indexCache = new Map();
+
+  while (completed < requestedDays && attempts < 120) {
+    attempts++;
+    if (!existingDates.has(cursor)) {
+      const { twse, tpex } = await fetchMarketDay(cursor, { indexCache });
+      const rows = [...twse.prices, ...tpex.prices];
+      if (tpex.prices.length) {
+        const inserted = await insertPrices(env, rows);
+        await insertMarketIndices(env, [twse.index, tpex.index]);
+        dates.push({
+          date: cursor,
+          inserted,
+          by_market: { TWSE: twse.prices.length, TPEX: tpex.prices.length }
+        });
+        completed++;
+      }
+    }
+    cursor = addDays(cursor, -1);
+  }
+
+  return { ok: true, requested_trading_days: requestedDays, completed_trading_days: completed, dates };
+}
+
 async function getBackfillStatus(env) {
   const row = await env.DB.prepare(`
     SELECT
@@ -468,7 +740,14 @@ async function getBackfillStatus(env) {
       MAX(trade_date) AS latest_trade_date,
       COUNT(*) AS price_rows,
       COUNT(DISTINCT CASE WHEN market = 'TWSE' THEN trade_date END) AS twse_trading_days,
-      COUNT(DISTINCT CASE WHEN market = 'TPEX' THEN trade_date END) AS tpex_trading_days
+      COUNT(DISTINCT CASE WHEN market = 'TPEX' THEN trade_date END) AS tpex_trading_days,
+      COUNT(DISTINCT CASE WHEN market = 'TWSE' AND reference_price IS NOT NULL THEN trade_date END) AS twse_adjusted_days,
+      COUNT(DISTINCT CASE WHEN market = 'TPEX' AND reference_price IS NOT NULL THEN trade_date END) AS tpex_adjusted_days,
+      (SELECT COUNT(*) FROM market_indices WHERE market = 'TWSE') AS twse_index_days,
+      (SELECT COUNT(*) FROM market_indices WHERE market = 'TPEX') AS tpex_index_days,
+      (SELECT COUNT(*) FROM scanner_results
+       WHERE trade_date = (SELECT MAX(trade_date) FROM scanner_results)
+         AND rs_rank IS NOT NULL) AS latest_rs_rows
     FROM daily_prices
   `).first();
 
@@ -478,7 +757,12 @@ async function getBackfillStatus(env) {
     latest_trade_date: row?.latest_trade_date || null,
     price_rows: Number(row?.price_rows || 0),
     twse_trading_days: Number(row?.twse_trading_days || 0),
-    tpex_trading_days: Number(row?.tpex_trading_days || 0)
+    tpex_trading_days: Number(row?.tpex_trading_days || 0),
+    twse_adjusted_days: Number(row?.twse_adjusted_days || 0),
+    tpex_adjusted_days: Number(row?.tpex_adjusted_days || 0),
+    twse_index_days: Number(row?.twse_index_days || 0),
+    tpex_index_days: Number(row?.tpex_index_days || 0),
+    latest_rs_rows: Number(row?.latest_rs_rows || 0)
   };
 }
 
@@ -492,6 +776,35 @@ function sma(values, period, endIndex) {
 function average(values) {
   if (!values.length) return null;
   return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function adjustmentFactors(rows) {
+  const factors = Array(rows.length).fill(1);
+  for (let i = rows.length - 2; i >= 0; i--) {
+    const nextReference = Number(rows[i + 1].reference_price);
+    const currentClose = Number(rows[i].close);
+    const eventFactor = Number.isFinite(nextReference) && currentClose > 0
+      ? nextReference / currentClose
+      : 1;
+    factors[i] = factors[i + 1] * (eventFactor > 0.2 && eventFactor < 5 ? eventFactor : 1);
+  }
+  return factors;
+}
+
+function percentileRanks(rows, valueKey, outputKey) {
+  const byMarket = new Map();
+  for (const row of rows) {
+    if (!Number.isFinite(row[valueKey])) continue;
+    if (!byMarket.has(row.market)) byMarket.set(row.market, []);
+    byMarket.get(row.market).push(row);
+  }
+  for (const marketRows of byMarket.values()) {
+    marketRows.sort((a, b) => a[valueKey] - b[valueKey]);
+    const denominator = Math.max(1, marketRows.length - 1);
+    marketRows.forEach((row, index) => {
+      row[outputKey] = Math.round((index / denominator) * 1000) / 10;
+    });
+  }
 }
 
 async function rebuildLatestScanner(env) {
@@ -537,7 +850,8 @@ async function rebuildLatestScannerIfNeeded(env, latestTradeDate) {
 
 async function rebuildScannerForDate(env, tradeDate) {
   const prior = await env.DB.prepare(`
-    SELECT market, stock_id, stock_name, trade_date, open, high, low, close, volume
+    SELECT market, stock_id, stock_name, trade_date, open, high, low, close, volume,
+           amount, reference_price, last_ask_price, last_ask_volume, security_type, is_restricted
     FROM daily_prices
     WHERE trade_date IN (
       SELECT trade_date
@@ -549,6 +863,25 @@ async function rebuildScannerForDate(env, tradeDate) {
     )
     ORDER BY stock_id ASC, trade_date ASC
   `).bind(tradeDate).all();
+
+  const indexHistory = await env.DB.prepare(`
+    SELECT market, trade_date, close
+    FROM market_indices
+    WHERE trade_date IN (
+      SELECT trade_date
+      FROM market_indices
+      WHERE trade_date <= ?
+      GROUP BY trade_date
+      ORDER BY trade_date DESC
+      LIMIT 30
+    )
+    ORDER BY market ASC, trade_date ASC
+  `).bind(tradeDate).all();
+  const indices = new Map();
+  for (const row of indexHistory.results || []) {
+    if (!indices.has(row.market)) indices.set(row.market, []);
+    indices.get(row.market).push(row);
+  }
 
   const grouped = new Map();
   for (const row of prior.results || []) {
@@ -565,7 +898,9 @@ async function rebuildScannerForDate(env, tradeDate) {
     const latest = series[series.length - 1];
     if (latest.trade_date !== tradeDate) continue;
 
-    const closes = series.map(r => Number(r.close));
+    const factors = adjustmentFactors(series);
+    const closes = series.map((r, i) => Number(r.close) * factors[i]);
+    const highs = series.map((r, i) => Number(r.high) * factors[i]);
     const idx = closes.length - 1;
     const ma5 = sma(closes, 5, idx);
     const ma20 = sma(closes, 20, idx);
@@ -574,7 +909,7 @@ async function rebuildScannerForDate(env, tradeDate) {
     if (![ma5, ma20, ma5Prev, ma20Prev].every(Number.isFinite)) continue;
 
     const prior20 = series.slice(-21, -1);
-    const prior20High = Math.max(...prior20.map(r => Number(r.high)));
+    const prior20High = Math.max(...highs.slice(-21, -1));
     const avgVol20 = average(prior20.map(r => Number(r.volume)).filter(Number.isFinite));
     const currentVolume = Number(latest.volume);
     const volumeRatio = avgVol20 > 0 ? currentVolume / avgVol20 : null;
@@ -584,18 +919,46 @@ async function rebuildScannerForDate(env, tradeDate) {
       const cur = series[i];
       const prev = series[i - 1];
       trs.push(Math.max(
-        Number(cur.high) - Number(cur.low),
-        Math.abs(Number(cur.high) - Number(prev.close)),
-        Math.abs(Number(cur.low) - Number(prev.close))
+        (Number(cur.high) - Number(cur.low)) * factors[i],
+        Math.abs(Number(cur.high) * factors[i] - Number(prev.close) * factors[i - 1]),
+        Math.abs(Number(cur.low) * factors[i] - Number(prev.close) * factors[i - 1])
       ));
     }
     const r5 = average(trs);
+
+    const benchmarkSeries = indices.get(latest.market) || [];
+    const benchmarkLatestIndex = benchmarkSeries.findIndex(row => row.trade_date === tradeDate);
+    const benchmarkCurrent = benchmarkLatestIndex >= 0 ? Number(benchmarkSeries[benchmarkLatestIndex].close) : null;
+    const benchmarkPrior = benchmarkLatestIndex >= RS_PERIOD
+      ? Number(benchmarkSeries[benchmarkLatestIndex - RS_PERIOD].close)
+      : null;
+    const stockReturn20 = idx >= RS_PERIOD && closes[idx - RS_PERIOD] > 0
+      ? ((closes[idx] / closes[idx - RS_PERIOD]) - 1) * 100
+      : null;
+    const benchmarkReturn20 = Number.isFinite(benchmarkCurrent) && Number.isFinite(benchmarkPrior) && benchmarkPrior > 0
+      ? ((benchmarkCurrent / benchmarkPrior) - 1) * 100
+      : null;
+    const rsExcess20 = Number.isFinite(stockReturn20) && Number.isFinite(benchmarkReturn20)
+      ? stockReturn20 - benchmarkReturn20
+      : null;
 
     const bullish = Number(latest.close) > ma5 && ma5 > ma20;
     const strengthening = bullish && ma5 > ma5Prev && ma20 >= ma20Prev;
     const priceBreakout = Number(latest.close) > prior20High;
     const volumeConfirmed = Number.isFinite(volumeRatio) && volumeRatio >= 1.3;
     const breakoutCandidate = strengthening && priceBreakout && volumeConfirmed;
+    const ma20DeviationPercent = ((Number(latest.close) / ma20) - 1) * 100;
+    const distanceTo20dHighPercent = ((Number(latest.close) / prior20High) - 1) * 100;
+    const dayChangePercent = Number(latest.reference_price) > 0
+      ? ((Number(latest.close) / Number(latest.reference_price)) - 1) * 100
+      : null;
+    const limitUpLocked = Number.isFinite(dayChangePercent) && dayChangePercent >= 9.5 &&
+      (!Number.isFinite(Number(latest.last_ask_price)) || Number(latest.last_ask_volume || 0) <= 0);
+    const liquid = Number(latest.amount) >= MIN_TURNOVER;
+    const restricted = Number(latest.is_restricted) === 1;
+    const commonStock = (latest.security_type || "COMMON_STOCK") === "COMMON_STOCK";
+    const eligible = commonStock && liquid && ma20DeviationPercent <= MAX_MA20_DEVIATION_PERCENT &&
+      !limitUpLocked && !restricted;
 
     let trendStage = "NONE";
     if (bullish) trendStage = "BULLISH_ALIGNMENT";
@@ -614,6 +977,18 @@ async function rebuildScannerForDate(env, tradeDate) {
       volumeRatio,
       r5,
       riskPercent: r5 > 0 ? (2 * r5 / Number(latest.close)) * 100 : null,
+      amount: Number.isFinite(Number(latest.amount)) ? Number(latest.amount) : null,
+      ma20DeviationPercent,
+      distanceTo20dHighPercent,
+      stockReturn20Percent: stockReturn20,
+      benchmarkReturn20Percent: benchmarkReturn20,
+      rsExcess20Percent: rsExcess20,
+      rsRank: null,
+      adjustedPriceUsed: factors.some(value => Math.abs(value - 1) > 1e-8),
+      liquid,
+      limitUpLocked,
+      restricted,
+      eligible,
       bullish,
       strengthening,
       priceBreakout,
@@ -622,15 +997,20 @@ async function rebuildScannerForDate(env, tradeDate) {
     });
   }
 
+  percentileRanks(results.filter(row => row.eligible), "rsExcess20Percent", "rsRank");
+
   const sql = `
     INSERT INTO scanner_results (
       trade_date, market, stock_id, stock_name, close,
       ma5, ma20, ma5_prev, ma20_prev,
       prior_20d_high, avg_volume_20, volume_ratio,
       r5, risk_percent,
+      amount, ma20_deviation_percent, distance_to_20d_high_percent,
+      stock_return_20_percent, benchmark_return_20_percent, rs_excess_20_percent, rs_rank,
+      adjusted_price_used, is_liquid, is_limit_up_locked, is_restricted, eligible,
       bullish_alignment, strengthening, price_breakout, volume_confirmed,
       trend_stage
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(trade_date, market, stock_id) DO UPDATE SET
       stock_name = excluded.stock_name,
       close = excluded.close,
@@ -643,6 +1023,18 @@ async function rebuildScannerForDate(env, tradeDate) {
       volume_ratio = excluded.volume_ratio,
       r5 = excluded.r5,
       risk_percent = excluded.risk_percent,
+      amount = excluded.amount,
+      ma20_deviation_percent = excluded.ma20_deviation_percent,
+      distance_to_20d_high_percent = excluded.distance_to_20d_high_percent,
+      stock_return_20_percent = excluded.stock_return_20_percent,
+      benchmark_return_20_percent = excluded.benchmark_return_20_percent,
+      rs_excess_20_percent = excluded.rs_excess_20_percent,
+      rs_rank = excluded.rs_rank,
+      adjusted_price_used = excluded.adjusted_price_used,
+      is_liquid = excluded.is_liquid,
+      is_limit_up_locked = excluded.is_limit_up_locked,
+      is_restricted = excluded.is_restricted,
+      eligible = excluded.eligible,
       bullish_alignment = excluded.bullish_alignment,
       strengthening = excluded.strengthening,
       price_breakout = excluded.price_breakout,
@@ -659,6 +1051,18 @@ async function rebuildScannerForDate(env, tradeDate) {
        OR volume_ratio IS NOT excluded.volume_ratio
        OR r5 IS NOT excluded.r5
        OR risk_percent IS NOT excluded.risk_percent
+       OR amount IS NOT excluded.amount
+       OR ma20_deviation_percent IS NOT excluded.ma20_deviation_percent
+       OR distance_to_20d_high_percent IS NOT excluded.distance_to_20d_high_percent
+       OR stock_return_20_percent IS NOT excluded.stock_return_20_percent
+       OR benchmark_return_20_percent IS NOT excluded.benchmark_return_20_percent
+       OR rs_excess_20_percent IS NOT excluded.rs_excess_20_percent
+       OR rs_rank IS NOT excluded.rs_rank
+       OR adjusted_price_used IS NOT excluded.adjusted_price_used
+       OR is_liquid IS NOT excluded.is_liquid
+       OR is_limit_up_locked IS NOT excluded.is_limit_up_locked
+       OR is_restricted IS NOT excluded.is_restricted
+       OR eligible IS NOT excluded.eligible
        OR bullish_alignment IS NOT excluded.bullish_alignment
        OR strengthening IS NOT excluded.strengthening
        OR price_breakout IS NOT excluded.price_breakout
@@ -675,6 +1079,13 @@ async function rebuildScannerForDate(env, tradeDate) {
         r.ma5, r.ma20, r.ma5Prev, r.ma20Prev,
         r.prior20High, r.avgVol20, r.volumeRatio,
         r.r5, r.riskPercent,
+        r.amount, r.ma20DeviationPercent, r.distanceTo20dHighPercent,
+        r.stockReturn20Percent, r.benchmarkReturn20Percent, r.rsExcess20Percent, r.rsRank,
+        r.adjustedPriceUsed ? 1 : 0,
+        r.liquid ? 1 : 0,
+        r.limitUpLocked ? 1 : 0,
+        r.restricted ? 1 : 0,
+        r.eligible ? 1 : 0,
         r.bullish ? 1 : 0,
         r.strengthening ? 1 : 0,
         r.priceBreakout ? 1 : 0,
@@ -704,7 +1115,7 @@ async function handleScan(url, env) {
   let sql = `
     SELECT *
     FROM scanner_results
-    WHERE trade_date = ?
+    WHERE trade_date = ? AND eligible = 1
   `;
   const binds = [latest.trade_date];
 
@@ -724,7 +1135,7 @@ async function handleScan(url, env) {
     binds.push(pattern, pattern);
   }
 
-  sql += " ORDER BY volume_ratio DESC, risk_percent ASC LIMIT ?";
+  sql += " ORDER BY COALESCE(rs_rank, -1) DESC, volume_ratio DESC, risk_percent ASC LIMIT ?";
   binds.push(limit);
 
   const result = await env.DB.prepare(sql).bind(...binds).all();
@@ -735,6 +1146,13 @@ async function handleScan(url, env) {
     stage,
     market: market || "ALL",
     query,
+    filters: {
+      minimum_turnover: MIN_TURNOVER,
+      maximum_ma20_deviation_percent: MAX_MA20_DEVIATION_PERCENT,
+      excludes_restricted: true,
+      excludes_limit_up_locked: true,
+      rs_period: RS_PERIOD
+    },
     count: (result.results || []).length,
     data: result.results || []
   });

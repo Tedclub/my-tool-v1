@@ -14,13 +14,14 @@
     "run_worker_first": ["/api/*", "/admin/*", "/health"]
   },
   "triggers": {
-    "crons": ["0 9 * * *"]
+    "crons": ["0 9 * * *", "*/30 * * * *"]
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "taiwan-market-data",
-      "database_id": "40b89ca6-9f60-4bd3-b63b-3204482e6852"
+      "database_id": "40b89ca6-9f60-4bd3-b63b-3204482e6852",
+      "migrations_dir": "./migrations"
     }
   ]
 }
