@@ -72,15 +72,23 @@ npx wrangler d1 execute taiwan-market-data --remote --file=./schema.sql
 npx wrangler secret put ADMIN_TOKEN
 ```
 
-`/admin/update` 與 `/admin/backfill` 必須帶：
+`/admin/update`、`/admin/backfill` 與 `/admin/rebuild-latest` 必須帶：
 
 ```
 Authorization: Bearer <ADMIN_TOKEN>
 ```
 
-## 初始化 60 個交易日
+## 初始化 21～60 個交易日（D1 Free 寫入控制）
 
-為避免單次 Worker 執行大量外部請求，回補 API 每次最多處理 15 個有效交易日。
+為符合 D1 Free 每日 100,000 Rows written 限制，歷史回補與日常更新採用不同流程：
+
+- `/admin/backfill`：只寫入 `daily_prices`，不建立任何歷史日期的 `scanner_results`。
+- `/admin/rebuild-latest`：歷史資料足夠後，只為資料庫中的最新交易日建立一次 `scanner_results`。
+- 日常 cron 與 `/admin/update`：只寫入指定當日價格，再重建同一天的 scanner 結果。
+
+回補 API 每次最多處理 **10 個有效交易日**。這是刻意採用 10～15 日建議區間的保守端，因為 D1 不只計算資料表列，主鍵與索引更新也會增加 Rows written（見 [Cloudflare D1 Pricing](https://developers.cloudflare.com/d1/platform/pricing/)）。
+
+若每日約有 1,500～2,000 檔普通股，一批 10 日約新增 15,000～20,000 筆價格資料；考慮 `daily_prices` 的主鍵與兩個索引後，D1 計量寫入量可能約為 60,000～80,000。60 日合計約 90,000～120,000 筆價格資料（計量寫入量可能約 360,000～480,000），因此初始化應至少分 6 個額度日完成，而且不要在同一日反覆重跑不同回補批次。實際用量仍以 Cloudflare Dashboard 的 D1 Row Metrics 為準。
 
 例如先跑：
 
@@ -100,7 +108,18 @@ next_before
 POST /admin/backfill?days=10&before=<next_before>
 ```
 
-重複約 6 次，即可累積約 60 個交易日。
+每天執行一批，重複約 6 個額度日，即可累積約 60 個交易日。
+
+回補回應中的 `scanner_rows` 固定為 `0`，表示此流程只儲存價格；`next_before` 是下一批應使用的日期游標。若同一批不小心重跑，價格 UPSERT 只會更新實際有變動的資料，避免無條件重寫相同列。
+
+至少累積 21 個有效交易日（建議 60 日）後，執行一次：
+
+```text
+POST /admin/rebuild-latest
+Authorization: Bearer <ADMIN_TOKEN>
+```
+
+此端點會從 `daily_prices` 找出最新交易日，並只 UPSERT 該日的 `scanner_results`；不會替每個歷史日期建立掃描結果。
 
 ## 每日更新
 
@@ -110,7 +129,14 @@ Wrangler cron 目前設定：
 0 9 * * *
 ```
 
-即 UTC 09:00，台灣時間約 17:00。非交易日若官方沒有資料，Worker 會正常略過。
+即 UTC 09:00，台灣時間約 17:00。非交易日若官方沒有資料，Worker 會正常略過。正常交易日只會新增約 1,500～2,000 筆當日價格，以及約 1,500～2,000 筆當日 scanner 結果；連同兩張表的主鍵與索引，D1 計量寫入量粗估約 12,000～16,000，仍明顯低於每日 100,000，但應以 Dashboard 實測為準。
+
+手動執行單日更新的行為相同：
+
+```text
+POST /admin/update?date=YYYY-MM-DD
+Authorization: Bearer <ADMIN_TOKEN>
+```
 
 ## 查詢掃描結果
 

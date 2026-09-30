@@ -4,6 +4,8 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization"
 };
 
+const BACKFILL_MAX_TRADING_DAYS = 10;
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -38,9 +40,19 @@ export default {
 
       if (url.pathname === "/admin/backfill" && request.method === "POST") {
         requireAdmin(request, env);
-        const days = clamp(parseInt(url.searchParams.get("days") || "10", 10), 1, 15);
+        const days = clamp(
+          parseInt(url.searchParams.get("days") || "10", 10),
+          1,
+          BACKFILL_MAX_TRADING_DAYS
+        );
         const before = url.searchParams.get("before") || taipeiToday();
-        const result = await backfillTradingDays(env, days, before);
+        const result = await backfillPriceHistory(env, days, before);
+        return json(result);
+      }
+
+      if (url.pathname === "/admin/rebuild-latest" && request.method === "POST") {
+        requireAdmin(request, env);
+        const result = await rebuildLatestScanner(env);
         return json(result);
       }
 
@@ -51,7 +63,8 @@ export default {
           scan: "GET /api/scan?stage=BREAKOUT_CANDIDATE&limit=100",
           backfill_status: "GET /api/backfill-status",
           update: "POST /admin/update?date=YYYY-MM-DD",
-          backfill: "POST /admin/backfill?days=10&before=YYYY-MM-DD"
+          backfill: "POST /admin/backfill?days=10&before=YYYY-MM-DD",
+          rebuild_latest: "POST /admin/rebuild-latest"
         }
       });
     } catch (error) {
@@ -64,7 +77,8 @@ export default {
     if (controller.cron === "*/5 * * * *") {
       const status = await getBackfillStatus(env);
       if (status.trading_days >= 60) {
-        console.log(JSON.stringify({ event: "backfill_complete", ...status }));
+        const rebuild = await rebuildLatestScannerIfNeeded(env, status.latest_trade_date);
+        console.log(JSON.stringify({ event: "backfill_complete", ...status, rebuild }));
         return;
       }
 
@@ -74,7 +88,7 @@ export default {
       const result = await backfillPriceHistory(env, 5, before);
       const nextStatus = await getBackfillStatus(env);
       if (nextStatus.trading_days >= 60 && nextStatus.latest_trade_date) {
-        await rebuildScannerForDate(env, nextStatus.latest_trade_date);
+        await rebuildLatestScannerIfNeeded(env, nextStatus.latest_trade_date);
       }
       console.log(JSON.stringify({
         event: "backfill_batch",
@@ -348,6 +362,14 @@ async function insertPrices(env, rows) {
       volume = excluded.volume,
       amount = excluded.amount,
       transactions = excluded.transactions
+    WHERE stock_name IS NOT excluded.stock_name
+       OR open IS NOT excluded.open
+       OR high IS NOT excluded.high
+       OR low IS NOT excluded.low
+       OR close IS NOT excluded.close
+       OR volume IS NOT excluded.volume
+       OR amount IS NOT excluded.amount
+       OR transactions IS NOT excluded.transactions
   `;
 
   let total = 0;
@@ -399,39 +421,6 @@ async function updateOneDate(env, date) {
   };
 }
 
-async function backfillTradingDays(env, requestedDays, beforeDate) {
-  let cursor = beforeDate;
-  let tradingDays = 0;
-  let calendarAttempts = 0;
-  const maxCalendarAttempts = requestedDays * 3 + 10;
-  const dates = [];
-
-  while (tradingDays < requestedDays && calendarAttempts < maxCalendarAttempts) {
-    const result = await updateOneDate(env, cursor);
-    calendarAttempts++;
-
-    if (result.trading_day) {
-      tradingDays++;
-      dates.push({
-        date: cursor,
-        inserted: result.inserted,
-        scanner_rows: result.scanner_rows
-      });
-    }
-
-    cursor = addDays(cursor, -1);
-  }
-
-  return {
-    ok: true,
-    requested_trading_days: requestedDays,
-    completed_trading_days: tradingDays,
-    dates,
-    next_before: cursor,
-    note: "Call backfill again with before=next_before until 60 trading days are accumulated."
-  };
-}
-
 async function backfillPriceHistory(env, requestedDays, beforeDate) {
   let cursor = beforeDate;
   let tradingDays = 0;
@@ -465,7 +454,9 @@ async function backfillPriceHistory(env, requestedDays, beforeDate) {
     requested_trading_days: requestedDays,
     completed_trading_days: tradingDays,
     dates,
-    next_before: cursor
+    next_before: cursor,
+    scanner_rows: 0,
+    note: "Price history only. Call POST /admin/rebuild-latest once after enough trading days are stored."
   };
 }
 
@@ -501,6 +492,47 @@ function sma(values, period, endIndex) {
 function average(values) {
   if (!values.length) return null;
   return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+async function rebuildLatestScanner(env) {
+  const latest = await env.DB.prepare(
+    "SELECT MAX(trade_date) AS trade_date FROM daily_prices"
+  ).first();
+
+  if (!latest?.trade_date) {
+    return {
+      ok: true,
+      rebuilt: false,
+      trade_date: null,
+      scanner_rows: 0,
+      message: "No price history is available."
+    };
+  }
+
+  const scannerRows = await rebuildScannerForDate(env, latest.trade_date);
+  return {
+    ok: true,
+    rebuilt: true,
+    trade_date: latest.trade_date,
+    scanner_rows: scannerRows
+  };
+}
+
+async function rebuildLatestScannerIfNeeded(env, latestTradeDate) {
+  if (!latestTradeDate) {
+    return { rebuilt: false, trade_date: null, scanner_rows: 0 };
+  }
+
+  const latestScanner = await env.DB.prepare(
+    "SELECT MAX(trade_date) AS trade_date FROM scanner_results"
+  ).first();
+
+  if (latestScanner?.trade_date === latestTradeDate) {
+    return { rebuilt: false, trade_date: latestTradeDate, reason: "already_current" };
+  }
+
+  const scannerRows = await rebuildScannerForDate(env, latestTradeDate);
+  return { rebuilt: true, trade_date: latestTradeDate, scanner_rows: scannerRows };
 }
 
 async function rebuildScannerForDate(env, tradeDate) {
@@ -590,9 +622,6 @@ async function rebuildScannerForDate(env, tradeDate) {
     });
   }
 
-  await env.DB.prepare("DELETE FROM scanner_results WHERE trade_date = ?")
-    .bind(tradeDate).run();
-
   const sql = `
     INSERT INTO scanner_results (
       trade_date, market, stock_id, stock_name, close,
@@ -602,6 +631,39 @@ async function rebuildScannerForDate(env, tradeDate) {
       bullish_alignment, strengthening, price_breakout, volume_confirmed,
       trend_stage
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(trade_date, market, stock_id) DO UPDATE SET
+      stock_name = excluded.stock_name,
+      close = excluded.close,
+      ma5 = excluded.ma5,
+      ma20 = excluded.ma20,
+      ma5_prev = excluded.ma5_prev,
+      ma20_prev = excluded.ma20_prev,
+      prior_20d_high = excluded.prior_20d_high,
+      avg_volume_20 = excluded.avg_volume_20,
+      volume_ratio = excluded.volume_ratio,
+      r5 = excluded.r5,
+      risk_percent = excluded.risk_percent,
+      bullish_alignment = excluded.bullish_alignment,
+      strengthening = excluded.strengthening,
+      price_breakout = excluded.price_breakout,
+      volume_confirmed = excluded.volume_confirmed,
+      trend_stage = excluded.trend_stage
+    WHERE stock_name IS NOT excluded.stock_name
+       OR close IS NOT excluded.close
+       OR ma5 IS NOT excluded.ma5
+       OR ma20 IS NOT excluded.ma20
+       OR ma5_prev IS NOT excluded.ma5_prev
+       OR ma20_prev IS NOT excluded.ma20_prev
+       OR prior_20d_high IS NOT excluded.prior_20d_high
+       OR avg_volume_20 IS NOT excluded.avg_volume_20
+       OR volume_ratio IS NOT excluded.volume_ratio
+       OR r5 IS NOT excluded.r5
+       OR risk_percent IS NOT excluded.risk_percent
+       OR bullish_alignment IS NOT excluded.bullish_alignment
+       OR strengthening IS NOT excluded.strengthening
+       OR price_breakout IS NOT excluded.price_breakout
+       OR volume_confirmed IS NOT excluded.volume_confirmed
+       OR trend_stage IS NOT excluded.trend_stage
   `;
 
   const chunkSize = 80;

@@ -2,8 +2,10 @@
   "name": "taiwan-market-scanner",
   "version": "2.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "node --test"
   },
   "devDependencies": {
     "wrangler": "4.143.0"
