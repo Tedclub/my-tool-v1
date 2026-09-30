@@ -336,19 +336,22 @@ tbody tr:hover { background: rgba(99,230,167,.035); }
 }
 
 @media (max-width: 700px) {
+  html, body { max-width: 100%; overflow-x: hidden; }
   .page-shell { padding: 0 14px 40px; }
   .hero { padding: 22px 2px 18px; }
   .hero-status { padding: 8px 10px; }
   .hero-status span:last-child { display: none; }
-  .summary-grid { gap: 9px; }
+  .summary-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 9px; }
   .summary-card { min-height: 118px; padding: 16px; border-radius: 16px; }
   .summary-card strong { font-size: 22px; }
   .toolbar { padding: 16px; gap: 16px; }
-  .segmented { display: grid; grid-template-columns: 1fr 1fr; }
+  .workspace, .toolbar, .filter-block, .filter-row, .search-wrap, .table-head { min-width: 0; max-width: 100%; }
+  .segmented { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .segmented button { padding: 10px 6px; }
-  .filter-row { display: grid; grid-template-columns: 1fr auto; }
+  .filter-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; width: 100%; }
   .select-wrap { grid-column: 1 / -1; }
-  .select-wrap select { width: 100%; }
+  .select-wrap select, .search-wrap input { width: 100%; min-width: 0; }
+  .refresh-button { padding: 0 12px; }
   .table-head { padding: 18px 16px 13px; }
   .sort-wrap span { display: none; }
   .desktop-table { display: none; }
