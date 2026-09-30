@@ -157,6 +157,7 @@ async function loadData() {
     renderStatus(scan);
     els.serviceStatus.className = "hero-status online";
     els.serviceStatus.lastElementChild.textContent = "服務正常";
+    state.loading = false;
     render();
   } catch (error) {
     els.serviceStatus.className = "hero-status error";
