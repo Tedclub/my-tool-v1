@@ -44,7 +44,12 @@ function installMarketFetch() {
   return () => { globalThis.fetch = originalFetch; };
 }
 
-function mockDb({ latestTradeDate = null, priceHistory = [] } = {}) {
+function mockDb({
+  latestTradeDate = null,
+  latestScannerDate = null,
+  priceHistory = [],
+  scannerResults = []
+} = {}) {
   const calls = [];
 
   function statement(sql, binds = []) {
@@ -60,7 +65,7 @@ function mockDb({ latestTradeDate = null, priceHistory = [] } = {}) {
           return { trade_date: latestTradeDate };
         }
         if (normalized.includes("MAX(trade_date) AS trade_date FROM scanner_results")) {
-          return { trade_date: null };
+          return { trade_date: latestScannerDate };
         }
         return null;
       },
@@ -68,6 +73,9 @@ function mockDb({ latestTradeDate = null, priceHistory = [] } = {}) {
         calls.push({ type: "all", sql: normalized, binds });
         if (normalized.includes("FROM daily_prices") && normalized.includes("ORDER BY stock_id")) {
           return { results: priceHistory };
+        }
+        if (normalized.includes("FROM scanner_results")) {
+          return { results: scannerResults };
         }
         return { results: [] };
       },
@@ -204,4 +212,26 @@ test("scanner rebuild preserves the existing breakout rules", async () => {
   assert.equal(scannerInsert.binds[16], 1, "Close exceeds the prior 20-day high");
   assert.equal(scannerInsert.binds[17], 1, "volume ratio is at least 1.3");
   assert.equal(scannerInsert.binds[18], "BREAKOUT_CANDIDATE");
+});
+
+test("scan search uses bound parameters for stock id or name", async () => {
+  const DB = mockDb({
+    latestScannerDate: "2026-09-29",
+    scannerResults: [{ stock_id: "2330", stock_name: "台積電" }]
+  });
+
+  const response = await worker.fetch(
+    new Request("https://scanner.example/api/scan?stage=ALL&q=台積&limit=20"),
+    { DB, ADMIN_TOKEN }
+  );
+  const body = await response.json();
+  const query = DB.calls.find(call =>
+    call.type === "all" && call.sql?.includes("FROM scanner_results")
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(body.query, "台積");
+  assert.equal(body.count, 1);
+  assert.ok(query.sql.includes("stock_id LIKE ? OR stock_name LIKE ?"));
+  assert.deepEqual(query.binds, ["2026-09-29", "%台積%", "%台積%", 20]);
 });

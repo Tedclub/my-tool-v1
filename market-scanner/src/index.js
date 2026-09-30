@@ -690,6 +690,7 @@ async function rebuildScannerForDate(env, tradeDate) {
 async function handleScan(url, env) {
   const stage = (url.searchParams.get("stage") || "BREAKOUT_CANDIDATE").toUpperCase();
   const market = (url.searchParams.get("market") || "").toUpperCase();
+  const query = (url.searchParams.get("q") || "").trim().slice(0, 40);
   const limit = clamp(parseInt(url.searchParams.get("limit") || "100", 10), 1, 500);
 
   const latest = await env.DB.prepare(
@@ -717,6 +718,12 @@ async function handleScan(url, env) {
     binds.push(market);
   }
 
+  if (query) {
+    sql += " AND (stock_id LIKE ? OR stock_name LIKE ?)";
+    const pattern = "%" + query + "%";
+    binds.push(pattern, pattern);
+  }
+
   sql += " ORDER BY volume_ratio DESC, risk_percent ASC LIMIT ?";
   binds.push(limit);
 
@@ -727,6 +734,7 @@ async function handleScan(url, env) {
     trade_date: latest.trade_date,
     stage,
     market: market || "ALL",
+    query,
     count: (result.results || []).length,
     data: result.results || []
   });

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#081711">
+  <meta name="description" content="台股上市與上櫃市場強弱掃描器">
+  <title>台股強弱雷達</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <div>
+          <p class="eyebrow">TAIWAN MARKET SCANNER</p>
+          <h1>台股強弱雷達</h1>
+        </div>
+      </div>
+      <div class="hero-status" id="serviceStatus">
+        <span class="status-dot"></span>
+        <span>連線中</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="summary-grid" aria-label="市場資料摘要">
+        <article class="summary-card accent">
+          <span class="summary-label">資料日期</span>
+          <strong id="tradeDate">—</strong>
+          <small>最新掃描交易日</small>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">上市 TWSE</span>
+          <strong><span id="twseDays">—</span><em>日</em></strong>
+          <small id="twseState">讀取中</small>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">上櫃 TPEx</span>
+          <strong><span id="tpexDays">—</span><em>日</em></strong>
+          <small id="tpexState">讀取中</small>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">目前結果</span>
+          <strong><span id="resultCount">—</span><em>檔</em></strong>
+          <small id="resultDescription">符合篩選條件</small>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <div class="toolbar">
+          <div class="filter-block">
+            <span class="filter-label">訊號階段</span>
+            <div class="segmented" id="stageFilter" role="group" aria-label="訊號階段">
+              <button class="active" data-stage="BREAKOUT_CANDIDATE">突破候選</button>
+              <button data-stage="STRENGTHENING">多頭轉強</button>
+              <button data-stage="BULLISH_ALIGNMENT">多頭排列</button>
+              <button data-stage="ALL">全部</button>
+            </div>
+          </div>
+
+          <div class="filter-row">
+            <label class="select-wrap">
+              <span>市場</span>
+              <select id="marketFilter">
+                <option value="">全部市場</option>
+                <option value="TWSE">上市 TWSE</option>
+                <option value="TPEX">上櫃 TPEx</option>
+              </select>
+            </label>
+
+            <label class="search-wrap">
+              <span class="sr-only">搜尋股票</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.1-5.4a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+              <input id="stockSearch" type="search" placeholder="搜尋代號或名稱" autocomplete="off">
+            </label>
+
+            <button class="refresh-button" id="refreshButton" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5m10.1-3A8 8 0 0 0 5.6 5.6L4 7m16 10-1.6 1.4A8 8 0 0 1 4.9 15"/></svg>
+              更新
+            </button>
+          </div>
+        </div>
+
+        <div class="notice" id="marketNotice" hidden>
+          <span class="notice-icon">!</span>
+          <p><strong>上櫃資料回補中</strong><br>目前歷史天數不足，MA20 與突破訊號尚不具完整參考性。</p>
+        </div>
+
+        <div class="table-head">
+          <div>
+            <h2 id="sectionTitle">突破候選</h2>
+            <p id="lastUpdated">正在取得最新資料…</p>
+          </div>
+          <label class="sort-wrap">
+            <span>排序</span>
+            <select id="sortFilter">
+              <option value="volume">量比最高</option>
+              <option value="risk">風險較低</option>
+              <option value="code">股票代號</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="loading-state" id="loadingState">
+          <span class="loader"></span>
+          <p>掃描市場資料中</p>
+        </div>
+
+        <div class="error-state" id="errorState" hidden>
+          <strong>暫時無法讀取資料</strong>
+          <p id="errorMessage">請稍後再試。</p>
+          <button type="button" id="retryButton">重新載入</button>
+        </div>
+
+        <div class="empty-state" id="emptyState" hidden>
+          <div>⌁</div>
+          <strong>目前沒有符合條件的股票</strong>
+          <p>可以切換訊號階段、市場或清除搜尋條件。</p>
+        </div>
+
+        <div class="results" id="results" hidden>
+          <div class="desktop-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>股票</th>
+                  <th>市場</th>
+                  <th>收盤價</th>
+                  <th>MA5 / MA20</th>
+                  <th>量比</th>
+                  <th>R5</th>
+                  <th>風險</th>
+                  <th>訊號</th>
+                </tr>
+              </thead>
+              <tbody id="stockTableBody"></tbody>
+            </table>
+          </div>
+          <div class="mobile-cards" id="stockCards"></div>
+        </div>
+      </section>
+
+      <section class="legend">
+        <h2>訊號怎麼看</h2>
+        <div class="legend-grid">
+          <article><span class="legend-number">01</span><div><strong>多頭排列</strong><p>收盤價高於 MA5，且 MA5 高於 MA20。</p></div></article>
+          <article><span class="legend-number">02</span><div><strong>多頭轉強</strong><p>均線維持多頭，短中期均線同步增強。</p></div></article>
+          <article><span class="legend-number">03</span><div><strong>突破候選</strong><p>價格突破前高，且成交量達 20 日均量 1.3 倍。</p></div></article>
+        </div>
+        <p class="disclaimer">掃描結果為技術條件分類，不構成投資建議。投資前請自行評估風險。</p>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
