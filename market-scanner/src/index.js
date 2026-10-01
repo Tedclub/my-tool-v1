@@ -774,8 +774,8 @@ async function backfillMissingHistory(env, requestedDays) {
   // One trading day is normally found within four calendar days. Keep a small
   // ceiling so an upstream block cannot consume the Worker's subrequest quota.
   while (completed < requestedDays && attempts < 8) {
-    attempts++;
     if (!existingDates.has(cursor)) {
+      attempts++;
       // Historical seeds contain official TPEx responses captured outside the
       // Worker because TPEx redirects Cloudflare-origin requests to /errors.
       // Dates beyond the seed range still fall back to the live official API.
