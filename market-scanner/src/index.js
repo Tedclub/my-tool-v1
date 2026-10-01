@@ -515,6 +515,50 @@ async function fetchTpex(date, restrictedCodes = new Set(), indexCache = new Map
   return { prices, index: await fetchTpexIndex(date, indexCache) };
 }
 
+async function fetchTpexSeed(env, date) {
+  if (!env.ASSETS) return { prices: [], index: null };
+  const response = await env.ASSETS.fetch(new Request(
+    `https://assets.local/backfill/tpex/${date}.json.gz`
+  ));
+  if (!response.ok) return { prices: [], index: null };
+
+  try {
+    const inflated = response.body.pipeThrough(new DecompressionStream("gzip"));
+    const seed = JSON.parse(await new Response(inflated).text());
+    const prices = (seed.r || []).map(row => ({
+      market: "TPEX",
+      stock_id: row[0],
+      stock_name: row[1],
+      trade_date: seed.d,
+      open: row[2],
+      high: row[3],
+      low: row[4],
+      close: row[5],
+      volume: row[6],
+      amount: row[7],
+      transactions: row[8],
+      reference_price: row[9],
+      last_ask_price: row[10],
+      last_ask_volume: row[11],
+      security_type: "COMMON_STOCK",
+      is_restricted: 0
+    }));
+    return {
+      prices,
+      index: Number.isFinite(seed.i)
+        ? { market: "TPEX", trade_date: seed.d, index_name: "櫃買指數", close: seed.i }
+        : null
+    };
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "tpex_seed_invalid",
+      date,
+      error: error.message || String(error)
+    }));
+    return { prices: [], index: null };
+  }
+}
+
 async function fetchJsonOrEmpty(url) {
   try {
     const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -730,9 +774,13 @@ async function backfillMissingHistory(env, requestedDays) {
   while (completed < requestedDays && attempts < 8) {
     attempts++;
     if (!existingDates.has(cursor)) {
-      // Fetch TPEx first. If it has no rows, do not spend a TWSE subrequest on a
-      // weekend, holiday, or unpublished date.
-      const tpex = await fetchTpex(cursor, new Set(), indexCache);
+      // Historical seeds contain official TPEx responses captured outside the
+      // Worker because TPEx redirects Cloudflare-origin requests to /errors.
+      // Dates beyond the seed range still fall back to the live official API.
+      let tpex = await fetchTpexSeed(env, cursor);
+      if (!tpex.prices.length) {
+        tpex = await fetchTpex(cursor, new Set(), indexCache);
+      }
       if (tpex.prices.length) {
         const twse = await fetchTwse(cursor, new Set());
         const rows = [...twse.prices, ...tpex.prices];
