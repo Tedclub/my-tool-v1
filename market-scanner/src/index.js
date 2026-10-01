@@ -85,6 +85,7 @@ export default {
       if (
         status.tpex_trading_days >= TARGET_HISTORY_DAYS &&
         status.twse_adjusted_days >= TARGET_HISTORY_DAYS &&
+        status.tpex_adjusted_days >= TARGET_HISTORY_DAYS &&
         status.twse_index_days >= TARGET_HISTORY_DAYS &&
         status.tpex_index_days >= TARGET_HISTORY_DAYS
       ) {
@@ -96,13 +97,14 @@ export default {
       }
 
       const scheduledAt = new Date(controller.scheduledTime || Date.now());
-      if (scheduledAt.getUTCMinutes() !== 0 || scheduledAt.getUTCHours() >= 10) return;
+      if (scheduledAt.getUTCMinutes() !== 0) return;
 
       const result = await backfillMissingHistory(env, 1);
       const nextStatus = await getBackfillStatus(env);
       if (
         nextStatus.tpex_trading_days >= TARGET_HISTORY_DAYS &&
         nextStatus.twse_adjusted_days >= TARGET_HISTORY_DAYS &&
+        nextStatus.tpex_adjusted_days >= TARGET_HISTORY_DAYS &&
         nextStatus.twse_index_days >= TARGET_HISTORY_DAYS &&
         nextStatus.tpex_index_days >= TARGET_HISTORY_DAYS &&
         nextStatus.latest_trade_date
