@@ -407,7 +407,10 @@ async function fetchTpex(date, restrictedCodes = new Set(), indexCache = new Map
         redirect: "manual",
         headers: {
           "Accept": "application/json",
-          "User-Agent": "taiwan-market-scanner/1.0"
+          "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+          "Cache-Control": "no-cache",
+          "Referer": "https://www.tpex.org.tw/zh-tw/mainboard/trading/info/pricing.html",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
         }
       });
       if (res.ok) break;
@@ -722,7 +725,9 @@ async function backfillMissingHistory(env, requestedDays) {
   const dates = [];
   const indexCache = new Map();
 
-  while (completed < requestedDays && attempts < 120) {
+  // One trading day is normally found within four calendar days. Keep a small
+  // ceiling so an upstream block cannot consume the Worker's subrequest quota.
+  while (completed < requestedDays && attempts < 8) {
     attempts++;
     if (!existingDates.has(cursor)) {
       // Fetch TPEx first. If it has no rows, do not spend a TWSE subrequest on a
