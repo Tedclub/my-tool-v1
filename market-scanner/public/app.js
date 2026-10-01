@@ -37,6 +37,7 @@ function escapeHtml(value) {
 }
 
 function number(value, digits = 2) {
+  if (value == null || value === "") return "—";
   const parsed = Number(value);
   return Number.isFinite(parsed)
     ? new Intl.NumberFormat("zh-TW", { maximumFractionDigits: digits }).format(parsed)
@@ -44,6 +45,7 @@ function number(value, digits = 2) {
 }
 
 function money(value) {
+  if (value == null || value === "") return "—";
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "—";
   if (parsed >= 100_000_000) return `${number(parsed / 100_000_000, 1)} 億`;
@@ -51,6 +53,7 @@ function money(value) {
 }
 
 function riskClass(value) {
+  if (value == null || value === "") return "";
   const risk = Number(value);
   if (!Number.isFinite(risk)) return "";
   if (risk <= 5) return "risk-low";
