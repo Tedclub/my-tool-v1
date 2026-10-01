@@ -81,3 +81,13 @@ CREATE TABLE IF NOT EXISTS market_indices (
 
 CREATE INDEX IF NOT EXISTS idx_market_indices_date
   ON market_indices (trade_date DESC, market);
+
+CREATE TABLE IF NOT EXISTS backfill_progress (
+  trade_date TEXT PRIMARY KEY,
+  twse_rows INTEGER NOT NULL DEFAULT 0,
+  tpex_rows INTEGER NOT NULL DEFAULT 0,
+  twse_adjusted INTEGER NOT NULL DEFAULT 0,
+  tpex_adjusted INTEGER NOT NULL DEFAULT 0,
+  twse_index INTEGER NOT NULL DEFAULT 0,
+  tpex_index INTEGER NOT NULL DEFAULT 0
+);

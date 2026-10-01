@@ -126,9 +126,9 @@ export default {
 
 async function ensureSchema(env) {
   const sentinel = await env.DB.prepare(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'market_indices'"
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backfill_progress'"
   ).first();
-  if (sentinel?.name === "market_indices") return;
+  if (sentinel?.name === "backfill_progress") return;
 
   const dailyColumns = new Set(((await env.DB.prepare("PRAGMA table_info(daily_prices)").all()).results || [])
     .map(row => row.name));
@@ -194,6 +194,47 @@ async function ensureSchema(env) {
   await env.DB.prepare(
     "CREATE INDEX IF NOT EXISTS idx_market_indices_date ON market_indices (trade_date DESC, market)"
   ).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS backfill_progress (
+      trade_date TEXT PRIMARY KEY,
+      twse_rows INTEGER NOT NULL DEFAULT 0,
+      tpex_rows INTEGER NOT NULL DEFAULT 0,
+      twse_adjusted INTEGER NOT NULL DEFAULT 0,
+      tpex_adjusted INTEGER NOT NULL DEFAULT 0,
+      twse_index INTEGER NOT NULL DEFAULT 0,
+      tpex_index INTEGER NOT NULL DEFAULT 0
+    )
+  `).run();
+  await env.DB.prepare(`
+    INSERT INTO backfill_progress
+      (trade_date, twse_rows, tpex_rows, twse_adjusted, tpex_adjusted, twse_index, tpex_index)
+    SELECT
+      p.trade_date,
+      SUM(CASE WHEN p.market = 'TWSE' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN p.market = 'TPEX' THEN 1 ELSE 0 END),
+      MAX(CASE WHEN p.market = 'TWSE' AND p.reference_price IS NOT NULL THEN 1 ELSE 0 END),
+      MAX(CASE WHEN p.market = 'TPEX' AND p.reference_price IS NOT NULL THEN 1 ELSE 0 END),
+      COALESCE(i.twse_index, 0),
+      COALESCE(i.tpex_index, 0)
+    FROM daily_prices p
+    LEFT JOIN (
+      SELECT
+        trade_date,
+        MAX(CASE WHEN market = 'TWSE' THEN 1 ELSE 0 END) AS twse_index,
+        MAX(CASE WHEN market = 'TPEX' THEN 1 ELSE 0 END) AS tpex_index
+      FROM market_indices
+      GROUP BY trade_date
+    ) i ON i.trade_date = p.trade_date
+    GROUP BY p.trade_date
+    ON CONFLICT(trade_date) DO UPDATE SET
+      twse_rows = excluded.twse_rows,
+      tpex_rows = excluded.tpex_rows,
+      twse_adjusted = excluded.twse_adjusted,
+      tpex_adjusted = excluded.tpex_adjusted,
+      twse_index = excluded.twse_index,
+      tpex_index = excluded.tpex_index
+  `).run();
+  await env.DB.prepare("INSERT OR IGNORE INTO d1_migrations (name) VALUES ('0003_backfill_progress.sql')").run();
 }
 
 function json(data, status = 200) {
@@ -667,6 +708,44 @@ async function insertPrices(env, rows) {
     await env.DB.batch(stmts);
     total += chunk.length;
   }
+  const summaries = new Map();
+  for (const row of rows) {
+    if (!summaries.has(row.trade_date)) {
+      summaries.set(row.trade_date, {
+        twse_rows: 0,
+        tpex_rows: 0,
+        twse_adjusted: 0,
+        tpex_adjusted: 0
+      });
+    }
+    const summary = summaries.get(row.trade_date);
+    const isTwse = row.market === "TWSE";
+    if (isTwse) summary.twse_rows++;
+    else if (row.market === "TPEX") summary.tpex_rows++;
+    if (Number.isFinite(row.reference_price)) {
+      if (isTwse) summary.twse_adjusted = 1;
+      else if (row.market === "TPEX") summary.tpex_adjusted = 1;
+    }
+  }
+  const progressSql = `
+    INSERT INTO backfill_progress
+      (trade_date, twse_rows, tpex_rows, twse_adjusted, tpex_adjusted)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(trade_date) DO UPDATE SET
+      twse_rows = MAX(twse_rows, excluded.twse_rows),
+      tpex_rows = MAX(tpex_rows, excluded.tpex_rows),
+      twse_adjusted = MAX(twse_adjusted, excluded.twse_adjusted),
+      tpex_adjusted = MAX(tpex_adjusted, excluded.tpex_adjusted)
+  `;
+  await env.DB.batch([...summaries].map(([date, summary]) =>
+    env.DB.prepare(progressSql).bind(
+      date,
+      summary.twse_rows,
+      summary.tpex_rows,
+      summary.twse_adjusted,
+      summary.tpex_adjusted
+    )
+  ));
   return total;
 }
 
@@ -683,6 +762,20 @@ async function insertMarketIndices(env, rows) {
   `;
   await env.DB.batch(valid.map(row =>
     env.DB.prepare(sql).bind(row.market, row.trade_date, row.index_name, row.close)
+  ));
+  const progressSql = `
+    INSERT INTO backfill_progress (trade_date, twse_index, tpex_index)
+    VALUES (?, ?, ?)
+    ON CONFLICT(trade_date) DO UPDATE SET
+      twse_index = MAX(twse_index, excluded.twse_index),
+      tpex_index = MAX(tpex_index, excluded.tpex_index)
+  `;
+  await env.DB.batch(valid.map(row =>
+    env.DB.prepare(progressSql).bind(
+      row.trade_date,
+      row.market === "TWSE" ? 1 : 0,
+      row.market === "TPEX" ? 1 : 0
+    )
   ));
   return valid.length;
 }
@@ -805,20 +898,20 @@ async function backfillMissingHistory(env, requestedDays) {
 async function getBackfillStatus(env) {
   const row = await env.DB.prepare(`
     SELECT
-      COUNT(DISTINCT trade_date) AS trading_days,
+      COUNT(*) AS trading_days,
       MIN(trade_date) AS earliest_trade_date,
       MAX(trade_date) AS latest_trade_date,
-      COUNT(*) AS price_rows,
-      COUNT(DISTINCT CASE WHEN market = 'TWSE' THEN trade_date END) AS twse_trading_days,
-      COUNT(DISTINCT CASE WHEN market = 'TPEX' THEN trade_date END) AS tpex_trading_days,
-      COUNT(DISTINCT CASE WHEN market = 'TWSE' AND reference_price IS NOT NULL THEN trade_date END) AS twse_adjusted_days,
-      COUNT(DISTINCT CASE WHEN market = 'TPEX' AND reference_price IS NOT NULL THEN trade_date END) AS tpex_adjusted_days,
-      (SELECT COUNT(*) FROM market_indices WHERE market = 'TWSE') AS twse_index_days,
-      (SELECT COUNT(*) FROM market_indices WHERE market = 'TPEX') AS tpex_index_days,
+      SUM(twse_rows + tpex_rows) AS price_rows,
+      SUM(CASE WHEN twse_rows > 0 THEN 1 ELSE 0 END) AS twse_trading_days,
+      SUM(CASE WHEN tpex_rows > 0 THEN 1 ELSE 0 END) AS tpex_trading_days,
+      SUM(twse_adjusted) AS twse_adjusted_days,
+      SUM(tpex_adjusted) AS tpex_adjusted_days,
+      SUM(twse_index) AS twse_index_days,
+      SUM(tpex_index) AS tpex_index_days,
       (SELECT COUNT(*) FROM scanner_results
        WHERE trade_date = (SELECT MAX(trade_date) FROM scanner_results)
          AND rs_rank IS NOT NULL) AS latest_rs_rows
-    FROM daily_prices
+    FROM backfill_progress
   `).first();
 
   return {
