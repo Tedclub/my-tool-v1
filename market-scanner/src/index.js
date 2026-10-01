@@ -401,15 +401,25 @@ async function fetchTpex(date, restrictedCodes = new Set(), indexCache = new Map
     encodeURIComponent(date.replaceAll("-", "/"));
 
   let res = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       res = await fetch(url, {
+        redirect: "manual",
         headers: {
           "Accept": "application/json",
           "User-Agent": "taiwan-market-scanner/1.0"
         }
       });
       if (res.ok) break;
+      if (res.status >= 300 && res.status < 400) {
+        console.warn(JSON.stringify({
+          event: "tpex_fetch_redirect_skipped",
+          date,
+          status: res.status,
+          location: res.headers.get("location") || null
+        }));
+        return { prices: [], index: null };
+      }
       console.warn(JSON.stringify({
         event: "tpex_fetch_retry",
         date,
@@ -704,7 +714,9 @@ async function backfillMissingHistory(env, requestedDays) {
     LIMIT 120
   `).all();
   const existingDates = new Set((existing.results || []).map(row => row.trade_date));
-  let cursor = taipeiToday();
+  // The current trading day's official files may not be published yet. Starting
+  // from yesterday also avoids TPEx's /errors redirect loop for future data.
+  let cursor = addDays(taipeiToday(), -1);
   let completed = 0;
   let attempts = 0;
   const dates = [];
@@ -713,9 +725,12 @@ async function backfillMissingHistory(env, requestedDays) {
   while (completed < requestedDays && attempts < 120) {
     attempts++;
     if (!existingDates.has(cursor)) {
-      const { twse, tpex } = await fetchMarketDay(cursor, { indexCache });
-      const rows = [...twse.prices, ...tpex.prices];
+      // Fetch TPEx first. If it has no rows, do not spend a TWSE subrequest on a
+      // weekend, holiday, or unpublished date.
+      const tpex = await fetchTpex(cursor, new Set(), indexCache);
       if (tpex.prices.length) {
+        const twse = await fetchTwse(cursor, new Set());
+        const rows = [...twse.prices, ...tpex.prices];
         const inserted = await insertPrices(env, rows);
         await insertMarketIndices(env, [twse.index, tpex.index]);
         dates.push({
