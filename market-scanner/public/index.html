@@ -50,6 +50,53 @@
         </article>
       </section>
 
+      <section class="quick-guide" aria-labelledby="quickGuideTitle">
+        <div class="guide-heading">
+          <div>
+            <p class="eyebrow">HOW TO READ</p>
+            <h2 id="quickGuideTitle">快速判讀指南</h2>
+          </div>
+          <p class="guide-status" id="rsGuideStatus">正在確認 RS 資料狀態…</p>
+        </div>
+
+        <div class="guide-grid">
+          <article>
+            <span class="guide-tag watch">觀察</span>
+            <div><strong>多頭轉強</strong><p>建立觀察名單，留意是否逐步接近前高。</p></div>
+          </article>
+          <article>
+            <span class="guide-tag trigger">觸發</span>
+            <div><strong>突破候選</strong><p>已突破前高，但乖離過大時避免追價。</p></div>
+          </article>
+          <article>
+            <span class="guide-tag trend">趨勢</span>
+            <div><strong>多頭排列</strong><p>只代表趨勢結構，不能單獨視為買進訊號。</p></div>
+          </article>
+          <article class="guide-priority">
+            <span class="guide-tag quality">優先</span>
+            <div><strong>先看品質，再看排名</strong><p>成交金額充足、MA20 乖離 ≤ 8%、風險 ≤ 6%、距前高約 -3%～+3%。</p></div>
+          </article>
+          <article>
+            <span class="guide-tag caution">提醒</span>
+            <div><strong>第一名不等於最好</strong><p>量比高代表成交突然放大，也可能伴隨過熱與較大波動。</p></div>
+          </article>
+          <article>
+            <span class="guide-tag data">資料</span>
+            <div><strong>先確認補齊狀態</strong><p>上市、上櫃或 RS 尚未完整時，相關欄位不可直接比較。</p></div>
+          </article>
+        </div>
+
+        <details class="rules-details">
+          <summary>展開指標與規則說明</summary>
+          <div class="legend-grid rules-grid">
+            <article><span class="legend-number">01</span><div><strong>固定品質濾網</strong><p>只納入普通股；成交金額至少 2,000 萬元；MA20 正乖離不超過 15%；排除處置、變更交易，以及漲停且無賣單的股票。</p></div></article>
+            <article><span class="legend-number">02</span><div><strong>RS 20 日排名</strong><p>個股 20 日還原報酬減去所屬市場指數報酬，再於上市或上櫃市場內計算百分位；100 代表相對最強。</p></div></article>
+            <article><span class="legend-number">03</span><div><strong>階段為遞進關係</strong><p>多頭排列：收盤 &gt; MA5 &gt; MA20。多頭轉強：再加 MA5 上升且 MA20 不下降。突破候選：再加收盤突破前 20 日最高價且量比 ≥ 1.3。</p></div></article>
+            <article><span class="legend-number">04</span><div><strong>價格與風險公式</strong><p>均線、前高與 RS 使用交易所參考價回推的還原權息價格。風險＝2 × 近 5 日平均真實波幅 ÷ 收盤價；它是波動指標，不代表虧損機率。</p></div></article>
+          </div>
+        </details>
+      </section>
+
       <section class="workspace">
         <div class="toolbar">
           <div class="filter-block">
@@ -148,13 +195,6 @@
       </section>
 
       <section class="legend">
-        <h2>規則與階段</h2>
-        <div class="legend-grid rules-grid">
-          <article><span class="legend-number">01</span><div><strong>固定品質濾網</strong><p>只納入普通股；成交金額至少 2,000 萬元；MA20 正乖離不超過 15%；排除處置、變更交易，以及漲停且無賣單的股票。</p></div></article>
-          <article><span class="legend-number">02</span><div><strong>RS 20 日排名</strong><p>個股 20 日還原報酬減去所屬市場指數報酬，再於上市或上櫃市場內計算百分位；100 代表相對最強。</p></div></article>
-          <article><span class="legend-number">03</span><div><strong>階段為遞進關係</strong><p>多頭排列：收盤 &gt; MA5 &gt; MA20。多頭轉強：再加 MA5 上升且 MA20 不下降。突破候選：再加收盤突破前 20 日最高價且量比 ≥ 1.3。</p></div></article>
-          <article><span class="legend-number">04</span><div><strong>價格與風險公式</strong><p>均線、前高與 RS 使用交易所參考價回推的還原權息價格。風險＝2 × 近 5 日平均真實波幅 ÷ 收盤價。</p></div></article>
-        </div>
         <p class="disclaimer">掃描結果為技術條件分類，不構成投資建議。投資前請自行評估風險。</p>
       </section>
     </main>
@@ -162,3 +202,4 @@
   <script src="/app.js" defer></script>
 </body>
 </html>
+

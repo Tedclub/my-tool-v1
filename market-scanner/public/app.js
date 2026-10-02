@@ -27,7 +27,7 @@ const els = Object.fromEntries([
   "resultCount", "resultDescription", "stageFilter", "marketFilter", "stockSearch",
   "sortFilter", "refreshButton", "marketNotice", "sectionTitle", "lastUpdated",
   "loadingState", "errorState", "errorMessage", "retryButton", "emptyState",
-  "results", "stockTableBody", "stockCards"
+  "results", "stockTableBody", "stockCards", "rsGuideStatus"
 ].map(id => [id, document.getElementById(id)]));
 
 function escapeHtml(value) {
@@ -139,6 +139,7 @@ function renderStatus(scan) {
   const tpexDays = Number(status.tpex_trading_days || 0);
   const twseReady = Number(status.twse_adjusted_days || 0) >= 21 && Number(status.twse_index_days || 0) >= 21;
   const tpexReady = Number(status.tpex_adjusted_days || 0) >= 60 && Number(status.tpex_index_days || 0) >= 21;
+  const rsReady = Number(status.latest_rs_rows || 0) > 0;
   els.tradeDate.textContent = scan.trade_date || status.latest_trade_date || "—";
   els.twseDays.textContent = number(twseDays, 0);
   els.tpexDays.textContent = number(tpexDays, 0);
@@ -146,6 +147,10 @@ function renderStatus(scan) {
   els.twseState.className = twseReady ? "complete" : "pending";
   els.tpexState.textContent = tpexReady ? "還原價格與 RS 完整" : "歷史資料回補中";
   els.tpexState.className = tpexReady ? "complete" : "pending";
+  els.rsGuideStatus.textContent = rsReady
+    ? "RS 排名已可使用，仍請搭配乖離、風險與成交金額判讀"
+    : "RS 尚未完成：目前先看量比、乖離、風險與成交金額";
+  els.rsGuideStatus.className = rsReady ? "guide-status complete" : "guide-status";
   els.lastUpdated.textContent = `資料日期 ${scan.trade_date || "—"} · 顯示最多 500 筆`;
 }
 
@@ -222,3 +227,4 @@ els.refreshButton.addEventListener("click", loadData);
 els.retryButton.addEventListener("click", loadData);
 
 loadData();
+
