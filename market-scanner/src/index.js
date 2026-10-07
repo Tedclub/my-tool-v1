@@ -848,30 +848,35 @@ async function backfillPriceHistory(env, requestedDays, beforeDate) {
 }
 
 async function backfillMissingHistory(env, requestedDays) {
-  const existing = await env.DB.prepare(`
-    SELECT DISTINCT trade_date
-    FROM daily_prices
-    WHERE market = 'TPEX'
+  // Only attempt known trading days covered by the bundled official TPEx
+  // history. Recent blocked dates and holidays must not starve older seeds.
+  const yesterday = addDays(taipeiToday(), -1);
+  const seedEndDate = "2026-09-30";
+  const through = yesterday < seedEndDate ? yesterday : seedEndDate;
+  const missing = await env.DB.prepare(`
+    SELECT trade_date
+    FROM backfill_progress
+    WHERE trade_date BETWEEN '2026-07-06' AND ?
+      AND (twse_rows = 0 OR tpex_rows = 0
+        OR twse_adjusted = 0 OR tpex_adjusted = 0
+        OR twse_index = 0 OR tpex_index = 0)
     ORDER BY trade_date DESC
     LIMIT 120
-  `).all();
-  const existingDates = new Set((existing.results || []).map(row => row.trade_date));
-  // The current trading day's official files may not be published yet. Starting
-  // from yesterday also avoids TPEx's /errors redirect loop for future data.
-  let cursor = addDays(taipeiToday(), -1);
+  `).bind(through).all();
+  const candidates = (missing.results || []).map(row => row.trade_date);
   let completed = 0;
   let attempts = 0;
   const dates = [];
   const indexCache = new Map();
 
-  // One trading day is normally found within four calendar days. Keep a small
-  // ceiling so an upstream block cannot consume the Worker's subrequest quota.
-  while (completed < requestedDays && attempts < 8) {
-    if (!existingDates.has(cursor)) {
+  // Keep a small ceiling so an upstream failure stays within subrequest limits.
+  for (const cursor of candidates) {
+    if (completed >= requestedDays || attempts >= 8) break;
+    {
       attempts++;
       // Historical seeds contain official TPEx responses captured outside the
       // Worker because TPEx redirects Cloudflare-origin requests to /errors.
-      // Dates beyond the seed range still fall back to the live official API.
+      // A missing seed falls back to the live official API.
       let tpex = await fetchTpexSeed(env, cursor);
       if (!tpex.prices.length) {
         tpex = await fetchTpex(cursor, new Set(), indexCache);
@@ -889,7 +894,6 @@ async function backfillMissingHistory(env, requestedDays) {
         completed++;
       }
     }
-    cursor = addDays(cursor, -1);
   }
 
   return { ok: true, requested_trading_days: requestedDays, completed_trading_days: completed, dates };
