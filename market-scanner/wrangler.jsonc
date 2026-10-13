@@ -14,7 +14,7 @@
     "run_worker_first": ["/api/*", "/admin/*", "/health"]
   },
   "triggers": {
-    "crons": ["0 9 * * *", "*/30 * * * *"]
+    "crons": ["0 9 * * *"]
   },
   "d1_databases": [
     {
