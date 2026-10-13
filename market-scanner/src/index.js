@@ -18,6 +18,16 @@ export default {
 
     try {
       const url = new URL(request.url);
+
+      if (url.pathname === "/api/v2/scanner/latest") {
+        if (request.method !== "GET") {
+          return new Response(JSON.stringify({ ok: false, error: "Method not allowed" }), {
+            status: 405,
+            headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", Allow: "GET, OPTIONS" }
+          });
+        }
+        return handleV2ScannerLatest(env);
+      }
       await ensureSchema(env);
 
       if (url.pathname === "/health") {
@@ -1323,4 +1333,155 @@ async function handleScan(url, env) {
     count: (result.results || []).length,
     data: result.results || []
   });
+}
+
+async function handleV2ScannerLatest(env) {
+  try {
+    // A single SELECT gives export rows and metadata from the same read snapshot.
+    // This route deliberately bypasses ensureSchema and never runs migrations.
+    const result = await env.DB.prepare(`
+      WITH latest AS (
+        SELECT MAX(trade_date) AS scan_date FROM scanner_results
+      ), candidates AS (
+        SELECT s.*, p.volume AS daily_volume, p.reference_price AS daily_reference_price,
+               p.trade_date AS joined_price_date
+        FROM scanner_results s
+        LEFT JOIN daily_prices p
+          ON p.trade_date = s.trade_date AND p.market = s.market AND p.stock_id = s.stock_id
+        WHERE s.trade_date = (SELECT scan_date FROM latest)
+          AND s.eligible = 1 AND s.trend_stage != 'NONE'
+      ), metadata AS (
+        SELECT
+          (SELECT scan_date FROM latest) AS export_scan_date,
+          (SELECT COUNT(*) FROM candidates) AS export_total_count,
+          (SELECT MAX(trade_date) FROM daily_prices WHERE market = 'TWSE') AS export_twse_date,
+          (SELECT MAX(trade_date) FROM daily_prices WHERE market = 'TPEX') AS export_tpex_date,
+          b.twse_rows AS export_twse_rows, b.tpex_rows AS export_tpex_rows,
+          b.twse_adjusted AS export_twse_adjusted, b.tpex_adjusted AS export_tpex_adjusted,
+          b.twse_index AS export_twse_index, b.tpex_index AS export_tpex_index
+        FROM latest l
+        LEFT JOIN backfill_progress b ON b.trade_date = l.scan_date
+      )
+      SELECT m.*, c.*
+      FROM metadata m LEFT JOIN candidates c ON 1 = 1
+      ORDER BY c.market ASC, c.stock_id ASC
+    `).all();
+    const rows = result.results || [];
+    const meta = rows[0] || {};
+    const scanDate = meta.export_scan_date || null;
+    const finite = value => value == null || value === "" || !Number.isFinite(Number(value))
+      ? null : Number(value);
+    const difference = (current, previous) => {
+      const a = finite(current), b = finite(previous);
+      return a == null || b == null ? null : Math.round((a - b) * 1e8) / 1e8;
+    };
+    const candidates = rows.filter(row => row.stock_id != null).map(row => {
+      const raw = Object.fromEntries(Object.entries(row).filter(([key]) =>
+        !key.startsWith("export_") &&
+        !["daily_volume", "daily_reference_price", "joined_price_date"].includes(key)
+      ));
+      const reference = finite(row.daily_reference_price);
+      const close = finite(row.close);
+      return {
+        ...raw,
+        scan_date: row.trade_date,
+        symbol: row.stock_id,
+        name: row.stock_name,
+        volume: finite(row.daily_volume),
+        reference_price: reference,
+        change_pct: reference > 0 && close != null ? (close / reference - 1) * 100 : null,
+        ma60: null,
+        ma5_slope: difference(row.ma5, row.ma5_prev),
+        ma20_slope: difference(row.ma20, row.ma20_prev),
+        volume_ma20: finite(row.avg_volume_20),
+        rs_5d: null,
+        rs_20d: finite(row.rs_excess_20_percent),
+        breakout: row.price_breakout === 1,
+        breakout_level: finite(row.prior_20d_high),
+        distance_from_high: finite(row.distance_to_20d_high_percent),
+        scanner_score: null,
+        scanner_status: row.trend_stage,
+        signals: {
+          bullish_alignment: row.bullish_alignment === 1,
+          strengthening: row.strengthening === 1,
+          price_breakout: row.price_breakout === 1,
+          volume_confirmed: row.volume_confirmed === 1
+        }
+      };
+    });
+    const latestPriceDates = {
+      TWSE: meta.export_twse_date || null,
+      TPEX: meta.export_tpex_date || null
+    };
+    const completeness = {
+      TWSE: Boolean(scanDate && latestPriceDates.TWSE === scanDate &&
+        Number(meta.export_twse_rows) > 0 && Number(meta.export_twse_adjusted) === 1 &&
+        Number(meta.export_twse_index) === 1),
+      TPEX: Boolean(scanDate && latestPriceDates.TPEX === scanDate &&
+        Number(meta.export_tpex_rows) > 0 && Number(meta.export_tpex_adjusted) === 1 &&
+        Number(meta.export_tpex_index) === 1)
+    };
+    const missingPrices = rows.some(row => row.stock_id != null && row.joined_price_date == null);
+    const total = Number(meta.export_total_count || 0);
+    const poolComplete = total === candidates.length;
+    const warnings = ["SCAN_COMPLETION_UNVERIFIED"];
+    if (!scanDate) warnings.push("NO_SCANNER_RESULTS");
+    for (const market of ["TWSE", "TPEX"]) {
+      if (!scanDate || latestPriceDates[market] !== scanDate) warnings.push(market + "_DATA_NOT_CURRENT");
+      if (!completeness[market]) warnings.push(market + "_DATA_COMPLETENESS_UNVERIFIED");
+    }
+    if (missingPrices) warnings.push("CANDIDATE_DAILY_PRICE_MISSING");
+    if (candidates.some(row => row.rs_rank == null || row.rs_20d == null)) warnings.push("RS_METRICS_MISSING");
+    if (!poolComplete) warnings.push("CANDIDATE_POOL_TRUNCATED");
+    const marketDataComplete = completeness.TWSE && completeness.TPEX && !missingPrices;
+    const counts = {
+      BREAKOUT_CANDIDATE: 0, STRENGTHENING: 0, BULLISH_ALIGNMENT: 0
+    };
+    for (const row of candidates) counts[row.scanner_status] = (counts[row.scanner_status] || 0) + 1;
+    return json({
+      ok: true,
+      api_version: "v2-scanner-export-1",
+      scan_date: scanDate,
+      exported_at: new Date().toISOString(),
+      scan_completed_at: null,
+      scope: "eligible_signal_candidates",
+      total_count: total,
+      returned_count: candidates.length,
+      truncated: !poolComplete,
+      pool_complete: poolComplete,
+      market_data_complete: marketDataComplete,
+      latest_price_dates: latestPriceDates,
+      warnings,
+      counts_by_stage: counts,
+      quality: {
+        market_data_complete: marketDataComplete,
+        scan_completion_verified: false,
+        latest_price_dates: latestPriceDates,
+        completeness_by_market: completeness,
+        completeness_basis: "same_scan_date_with_recorded_rows_reference_prices_and_index",
+        completeness_limit: "market-level presence flags do not verify every security or scan-run completion",
+        warnings
+      },
+      definitions: {
+        ma_slope: "current_ma_minus_previous_trading_day_ma_in_TWD",
+        volume_ma20: "previous_20_trading_days_excluding_scan_date",
+        change_pct: "(close/reference_price-1)*100",
+        rs_20d: "stock_return_pct_minus_market_index_return_pct",
+        rs_rank: "percentile_within_same_market_eligible_stocks",
+        distance_from_high: "(close/prior_20d_high-1)*100",
+        r5: "mean_true_range_over_last_5_trading_days_in_TWD",
+        risk_percent: "2*r5/close*100",
+        price_basis: "raw_close_and_adjusted_ma_and_breakout_level",
+        volume_unit: "shares",
+        amount_unit: "TWD"
+      },
+      unavailable_fields: {
+        ma60: "not_implemented", rs_5d: "not_implemented", scanner_score: "not_implemented"
+      },
+      candidates
+    });
+  } catch (error) {
+    // Do not initialize or repair schema on an export request.
+    return json({ ok: false, error: "Scanner export unavailable", detail: error.message || String(error) }, 503);
+  }
 }
