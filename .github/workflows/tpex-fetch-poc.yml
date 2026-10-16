@@ -1,0 +1,264 @@
+name: TPEx fetch diagnostic POC
+on:
+  push:
+    branches: [diagnostic/tpex-fetch-poc-20261016]
+permissions: {}
+jobs:
+  readonly-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        probe: [1, 2, 3]
+    env:
+      PROBE_ID: ${{ matrix.probe }}
+    steps:
+      - name: Probe official TPEx without deployment or database access
+        shell: bash
+        run: |
+          node --input-type=module <<'TPEX_POC'
+          import { createHash } from "node:crypto";
+          import { appendFileSync } from "node:fs";
+          const dates = ["2026-09-30","2026-10-01","2026-10-15"];
+          const nativeFetch = globalThis.fetch;
+          const evidence = [];
+          let active = {};
+          globalThis.fetch = async (url, options = {}) => {
+            const started = Date.now();
+            try {
+              const response = await nativeFetch(url, { ...options, signal: AbortSignal.timeout(25000) });
+              const copy = await response.clone().text();
+              const entry = { ...active, url:String(url), status:response.status,
+                location:response.headers.get("location"), content_type:response.headers.get("content-type"),
+                body_bytes:Buffer.byteLength(copy), duration_ms:Date.now()-started,
+                body_sha256:createHash("sha256").update(copy).digest("hex") };
+              try { const body=JSON.parse(copy); entry.response_date=body.date;
+                entry.tables=(body.tables||[]).map(t=>({title:t.title,fields:t.fields,rows:t.data?.length}));
+              } catch { entry.non_json_preview=copy.slice(0,100); }
+              evidence.push(entry);
+              console.log("HTTP_EVIDENCE "+JSON.stringify(entry));
+              return response;
+            } catch(error) {
+              console.log("HTTP_ERROR "+JSON.stringify({...active,url:String(url),error:String(error)}));
+              throw error;
+            }
+          };
+          function n(value) {
+            if (value == null) return null;
+            const s = String(value)
+              .replace(/<[^>]*>/g, "")
+              .replace(/,/g, "")
+              .replace(/\s/g, "")
+              .replace(/−/g, "-");
+            if (!s || s === "--" || s === "---" || s === "-" || s === "除權" || s === "除息") return null;
+            const v = Number(s);
+            return Number.isFinite(v) ? v : null;
+          }
+          
+          function cleanText(value) {
+            return String(value == null ? "" : value)
+              .replace(/<[^>]*>/g, "")
+              .replace(/&nbsp;/g, " ")
+              .trim();
+          }
+          
+          function referencePrice(close, change) {
+            if (!Number.isFinite(close) || !Number.isFinite(change)) return null;
+            const value = close - change;
+            return value > 0 ? value : null;
+          }
+          
+          function isCommonStockCode(code) {
+            return /^\d{4}$/.test(code) && !code.startsWith("0") && !code.startsWith("91");
+          }
+          
+          function findFieldIndex(fields, candidates) {
+            return fields.findIndex(f => {
+              const text = cleanText(f);
+              return candidates.some(c => text.includes(c));
+            });
+          }
+          
+          function pickMarketTable(payload) {
+            const tables = Array.isArray(payload.tables) ? payload.tables : [];
+            return tables.find(t => {
+              const fields = Array.isArray(t.fields) ? t.fields.map(cleanText) : [];
+              return fields.some(f => f.includes("證券代號") || f === "代號") &&
+                     fields.some(f => f.includes("收盤"));
+            }) || null;
+          }
+          
+          async function fetchTpexIndex(date, cache = new Map()) {
+            const month = date.slice(0, 7);
+            if (!cache.has(month)) {
+              const url = "https://www.tpex.org.tw/www/zh-tw/indexInfo/inx?date=" +
+                encodeURIComponent(date.replaceAll("-", "/"));
+              const res = await fetch(url, { headers: { Accept: "application/json" } });
+              if (!res.ok) throw new Error("TPEx index HTTP " + res.status);
+              cache.set(month, await res.json());
+            }
+            const body = cache.get(month);
+            const table = body?.tables?.[0];
+            const row = table?.data?.find(item => cleanText(item[0]).replaceAll("/", "-") === date);
+            const close = row ? n(row[4]) : null;
+            return Number.isFinite(close)
+              ? { market: "TPEX", trade_date: date, index_name: "櫃買指數", close }
+              : null;
+          }
+          
+          async function fetchTpex(date, restrictedCodes = new Set(), indexCache = new Map()) {
+            const url =
+              "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=" +
+              encodeURIComponent(date.replaceAll("-", "/"));
+          
+            let res = null;
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              try {
+                res = await fetch(url, {
+                  redirect: "manual",
+                  headers: {
+                    "Accept": "application/json",
+                    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                    "Cache-Control": "no-cache",
+                    "Referer": "https://www.tpex.org.tw/zh-tw/mainboard/trading/info/pricing.html",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
+                  }
+                });
+                if (res.ok) break;
+                if (res.status >= 300 && res.status < 400) {
+                  console.warn(JSON.stringify({
+                    event: "tpex_fetch_redirect_skipped",
+                    date,
+                    status: res.status,
+                    location: res.headers.get("location") || null
+                  }));
+                  return { prices: [], index: null };
+                }
+                console.warn(JSON.stringify({
+                  event: "tpex_fetch_retry",
+                  date,
+                  attempt,
+                  status: res.status
+                }));
+              } catch (error) {
+                console.warn(JSON.stringify({
+                  event: "tpex_fetch_retry",
+                  date,
+                  attempt,
+                  error: error.message || String(error)
+                }));
+              }
+              await new Promise(resolve => setTimeout(resolve, attempt * 500));
+            }
+          
+            if (!res || !res.ok) {
+              console.error(JSON.stringify({
+                event: "tpex_fetch_skipped",
+                date,
+                status: res?.status || null
+              }));
+              return { prices: [], index: null };
+            }
+          
+            let body;
+            try {
+              const contentType = res.headers.get("content-type") || "";
+              if (!contentType.includes("json")) {
+                throw new Error(`unexpected content type: ${contentType || "unknown"}`);
+              }
+              body = await res.json();
+            } catch (error) {
+              console.error(JSON.stringify({
+                event: "tpex_fetch_skipped",
+                date,
+                status: res.status,
+                error: error.message || String(error)
+              }));
+              return { prices: [], index: null };
+            }
+          
+            const table = pickMarketTable(body);
+            if (!table || !Array.isArray(table.data)) return { prices: [], index: null };
+          
+            const fields = table.fields.map(cleanText);
+            const idx = {
+              code: findFieldIndex(fields, ["代號", "證券代號"]),
+              name: findFieldIndex(fields, ["名稱", "證券名稱"]),
+              close: findFieldIndex(fields, ["收盤"]),
+              open: findFieldIndex(fields, ["開盤"]),
+              high: findFieldIndex(fields, ["最高"]),
+              low: findFieldIndex(fields, ["最低"]),
+              volume: findFieldIndex(fields, ["成交股數"]),
+              amount: findFieldIndex(fields, ["成交金額"]),
+              tx: findFieldIndex(fields, ["成交筆數"]),
+              change: findFieldIndex(fields, ["漲跌"]),
+              ask: findFieldIndex(fields, ["最後賣價"]),
+              askVolume: findFieldIndex(fields, ["最後賣量"])
+            };
+          
+            const prices = table.data.map(row => {
+              const stockId = cleanText(row[idx.code]);
+              const close = n(row[idx.close]);
+              const change = n(row[idx.change]);
+              return {
+                market: "TPEX",
+                stock_id: stockId,
+                stock_name: cleanText(row[idx.name]),
+                trade_date: date,
+                open: n(row[idx.open]),
+                high: n(row[idx.high]),
+                low: n(row[idx.low]),
+                close,
+                volume: n(row[idx.volume]),
+                amount: idx.amount >= 0 ? n(row[idx.amount]) : null,
+                transactions: idx.tx >= 0 ? n(row[idx.tx]) : null,
+                reference_price: referencePrice(close, change),
+                last_ask_price: idx.ask >= 0 ? n(row[idx.ask]) : null,
+                last_ask_volume: idx.askVolume >= 0 ? n(row[idx.askVolume]) : null,
+                security_type: "COMMON_STOCK",
+                is_restricted: restrictedCodes.has(stockId) ? 1 : 0
+              };
+            }).filter(r =>
+              isCommonStockCode(r.stock_id) &&
+              [r.open, r.high, r.low, r.close, r.volume].every(Number.isFinite)
+            );
+          
+            return { prices, index: await fetchTpexIndex(date, indexCache) };
+          }
+          
+          
+          const results=[];
+          const startDelay=Number(process.env.PROBE_ID||1)-1;
+          await new Promise(r=>setTimeout(r,startDelay*30000));
+          for(let round=1;round<=2;round++){
+            const cache=new Map();
+            for(const date of dates){
+              active={runner:process.env.PROBE_ID||"local",round,date,profile:"production-identical"};
+              try {
+                const data=await fetchTpex(date,new Set(),cache);
+                const normalized=data.prices.slice().sort((a,b)=>a.stock_id.localeCompare(b.stock_id));
+                const result={...active,utc:new Date().toISOString(),parsed_rows:data.prices.length,
+                  index:data.index,date_valid:data.prices.every(r=>r.trade_date===date),
+                  normalized_sha256:createHash("sha256").update(JSON.stringify({prices:normalized,index:data.index})).digest("hex"),
+                  success:data.prices.length>0 && data.index!=null};
+                results.push(result);console.log("PARSE_RESULT "+JSON.stringify(result));
+              } catch(error){const result={...active,success:false,error:String(error)};results.push(result);console.log("PARSE_RESULT "+JSON.stringify(result));}
+            }
+            if(round===1)await new Promise(r=>setTimeout(r,20000));
+          }
+          for(const [profile,headers] of [["minimal",{Accept:"application/json"}],["browser-ua-only",{"User-Agent":"Mozilla/5.0",Accept:"application/json"}]]){
+            active={runner:process.env.PROBE_ID||"local",date:"2026-10-15",profile};
+            const before=evidence.length;
+            try {await globalThis.fetch("https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=2026%2F10%2F15",{headers,redirect:"manual"});}
+            catch {}
+            if(evidence.length===before)console.log("VARIANT_FAILED "+profile);
+          }
+          const summary={runner:process.env.PROBE_ID||"local",baseline_attempts:results.length,
+            baseline_successes:results.filter(x=>x.success).length,results};
+          console.log("POC_SUMMARY "+JSON.stringify(summary));
+          if(process.env.GITHUB_STEP_SUMMARY)appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            "# TPEx diagnostic only\n\n"+JSON.stringify(summary,null,2)+"\n");
+          if(results.some(x=>!x.success))process.exitCode=1;
+          
+          TPEX_POC
