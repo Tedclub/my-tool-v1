@@ -1,3 +1,5 @@
+import { SCANNER_READ_PATHS, handleScannerRead } from "./scanner-read.js";
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -12,6 +14,9 @@ const TARGET_HISTORY_DAYS = 60;
 
 export default {
   async fetch(request, env) {
+    if (SCANNER_READ_PATHS.has(new URL(request.url).pathname)) {
+      return handleScannerRead(request, env, handleV2ScannerLatest);
+    }
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS });
     }
@@ -19,15 +24,6 @@ export default {
     try {
       const url = new URL(request.url);
 
-      if (url.pathname === "/api/v2/scanner/latest") {
-        if (request.method !== "GET") {
-          return new Response(JSON.stringify({ ok: false, error: "Method not allowed" }), {
-            status: 405,
-            headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", Allow: "GET, OPTIONS" }
-          });
-        }
-        return handleV2ScannerLatest(env);
-      }
       await ensureSchema(env);
 
       if (url.pathname === "/health") {
@@ -1342,6 +1338,34 @@ async function handleV2ScannerLatest(env) {
     const result = await env.DB.prepare(`
       WITH latest AS (
         SELECT MAX(trade_date) AS scan_date FROM scanner_results
+      ), history_dates AS (
+        SELECT trade_date FROM daily_prices
+        WHERE trade_date <= (SELECT scan_date FROM latest)
+        GROUP BY trade_date ORDER BY trade_date DESC LIMIT 30
+      ), expected_scanner_keys AS (
+        SELECT market, stock_id FROM daily_prices
+        WHERE trade_date IN (SELECT trade_date FROM history_dates)
+        GROUP BY market, stock_id
+        HAVING COUNT(*) >= 21 AND MAX(trade_date) = (SELECT scan_date FROM latest)
+      ), market_checks AS (
+        SELECT m.market,
+          (SELECT COUNT(*) FROM daily_prices p WHERE p.market = m.market AND p.trade_date = l.scan_date) AS price_rows,
+          (SELECT COUNT(*) FROM market_indices i WHERE i.market = m.market AND i.trade_date = l.scan_date) AS index_rows,
+          (SELECT COUNT(*) FROM scanner_results s WHERE s.market = m.market AND s.trade_date = l.scan_date) AS scanner_rows,
+          (SELECT COUNT(*) FROM scanner_results s WHERE s.market = m.market AND s.trade_date = l.scan_date
+             AND s.eligible = 1 AND s.trend_stage != 'NONE') AS candidate_rows,
+          (SELECT COUNT(*) FROM expected_scanner_keys e WHERE e.market = m.market) AS expected_scanner_rows,
+          (SELECT COUNT(*) FROM expected_scanner_keys e LEFT JOIN scanner_results s
+             ON s.market = e.market AND s.stock_id = e.stock_id AND s.trade_date = l.scan_date
+             WHERE e.market = m.market AND s.stock_id IS NULL) AS missing_scanner_rows,
+          (SELECT COUNT(*) FROM scanner_results s LEFT JOIN expected_scanner_keys e
+             ON e.market = s.market AND e.stock_id = s.stock_id
+             WHERE s.market = m.market AND s.trade_date = l.scan_date AND e.stock_id IS NULL) AS unexpected_scanner_rows,
+          CASE WHEN m.market = 'TWSE' THEN b.twse_rows ELSE b.tpex_rows END AS recorded_price_rows,
+          CASE WHEN m.market = 'TWSE' THEN b.twse_adjusted ELSE b.tpex_adjusted END AS adjusted_presence_recorded,
+          CASE WHEN m.market = 'TWSE' THEN b.twse_index ELSE b.tpex_index END AS index_presence_recorded
+        FROM (SELECT 'TWSE' AS market UNION ALL SELECT 'TPEX') m CROSS JOIN latest l
+        LEFT JOIN backfill_progress b ON b.trade_date = l.scan_date
       ), candidates AS (
         SELECT s.*, p.volume AS daily_volume, p.reference_price AS daily_reference_price,
                p.trade_date AS joined_price_date
@@ -1356,6 +1380,13 @@ async function handleV2ScannerLatest(env) {
           (SELECT COUNT(*) FROM candidates) AS export_total_count,
           (SELECT MAX(trade_date) FROM daily_prices WHERE market = 'TWSE') AS export_twse_date,
           (SELECT MAX(trade_date) FROM daily_prices WHERE market = 'TPEX') AS export_tpex_date,
+          (SELECT json_group_object(market, json_object(
+            'price_rows', price_rows, 'index_rows', index_rows, 'scanner_rows', scanner_rows, 'candidate_rows', candidate_rows,
+            'expected_scanner_rows', expected_scanner_rows, 'missing_scanner_rows', missing_scanner_rows,
+            'unexpected_scanner_rows', unexpected_scanner_rows, 'recorded_price_rows', recorded_price_rows,
+            'adjusted_presence_recorded', adjusted_presence_recorded,
+            'index_presence_recorded', index_presence_recorded
+          )) FROM market_checks) AS export_read_integrity,
           b.twse_rows AS export_twse_rows, b.tpex_rows AS export_tpex_rows,
           b.twse_adjusted AS export_twse_adjusted, b.tpex_adjusted AS export_tpex_adjusted,
           b.twse_index AS export_twse_index, b.tpex_index AS export_tpex_index
@@ -1445,6 +1476,7 @@ async function handleV2ScannerLatest(env) {
       exported_at: new Date().toISOString(),
       scan_completed_at: null,
       scope: "eligible_signal_candidates",
+      _read_integrity: JSON.parse(meta.export_read_integrity || "{}"),
       total_count: total,
       returned_count: candidates.length,
       truncated: !poolComplete,

@@ -204,3 +204,88 @@ GET /api/scan?stage=ALL
 - 此 Worker 與現有 `taiwan-stock-api` 分離。
 - 不會修改原本 V2 個股查詢。
 - 掃描結果是技術條件分類，不等於買進訊號。
+
+## V2 read-only retrieval endpoints
+
+These routes run one SELECT only, bypass `ensureSchema()`, and never change ingestion,
+Scanner formulas, candidate selection, Cron, D1 schema or existing `/api/scan` behavior.
+
+- `GET /api/v2/scanner/latest`: backward-compatible full candidates and existing fields,
+  plus response ID, generation time, snapshot hash and per-market freshness.
+- `GET /api/v2/scanner/summary`: same snapshot metadata and hash, without candidates.
+- `GET /api/v2/scanner/candidates?market=TWSE&scan_date=2026-10-27`: full candidates
+  for that market only, only when the market passes the freshness/integrity checks.
+- Add `compact=1` for exactly the 23 documented second-layer analysis fields.
+- Add `snapshot_hash=sha256%3A...` from summary to refuse a changed snapshot.
+
+### Safe consumer flow
+
+1. Read summary and validate `response_generated_at`, `expected_trade_date`,
+   `scan_date`, `pool_complete`, `snapshot_hash` and the selected market's `fresh` flag.
+2. Only request candidates for a market with `markets[market].fresh === true`.
+   An unfresh TPEX does **not** prevent a fresh TWSE request.
+3. Pass both the summary's `scan_date` and `snapshot_hash` when fetching candidates.
+4. Validate response headers against JSON, hash against summary, candidate count,
+   market, and every candidate's scan date. Do not silently fall back to old answers.
+5. HTTP 409 (`MARKET_NOT_FRESH`, `SCAN_DATE_MISMATCH`, `SNAPSHOT_CHANGED`) returns no
+   candidates. On a changed snapshot, restart from summary; never merge snapshots.
+   Invalid parameters return 400, unsupported methods 405, unavailable data 503.
+
+Top-level `fresh` and `dates_consistent` describe the **whole** snapshot on latest
+and summary. On candidates they describe the **selected market**;
+`snapshot_fresh` and `snapshot_dates_consistent` retain the whole-snapshot status.
+`candidate_count`/`returned_count` are scoped to that response;
+`snapshot_candidate_count` is the original full candidate pool's size.
+
+`snapshot_hash` is SHA-256 of canonical key-sorted snapshot content, including the
+unchanged full candidate rows and stored integrity evidence. It excludes response
+IDs, export/generation timestamps, wall-clock freshness and transport/compact
+projection, so all three endpoints share the hash while data stays unchanged.
+It is a content fingerprint, not a signature or an immutable run ID.
+
+Hash input (`snapshot_hash_version = v2-snapshot-sha256-1`) is the canonical object
+with `hash_version`, `api_version`, `scan_date`, `latest_price_dates`, `pool_complete`,
+`market_data_complete`, `candidate_count`, `checks` (the two markets' stored `checks`)
+and the full original `candidates`. All object keys are recursively sorted; array
+order is retained. A full/latest consumer can independently recompute it. Compact
+consumers compare it to summary and pass it as a snapshot guard; compact projection
+alone cannot reproduce a hash of omitted full fields.
+
+### Fail-closed checks and limits
+
+Freshness requires the expected trade date, matching market/Scanner/candidate dates,
+stored price counts equal to recorded ingestion counts, recorded adjustment/index
+presence, one same-day market index, complete Scanner key coverage, and valid
+candidate joins/required metrics. Scanner coverage uses the existing 30 market dates
+and at-least-21-observations input eligibility; it does not recompute indicators or
+change which candidates the original Scanner selects. Verified zero-candidate days
+are valid; a missing or partial scan is not.
+
+These checks verify consistency of **stored/recorded data**, not completeness of the
+entire upstream exchange universe or historical adjustment accuracy. The existing
+`SCAN_COMPLETION_UNVERIFIED` warning and `scan_completed_at: null` remain: there is
+no immutable run-level record. No `run_id` or `candidates_same_run=true` is invented.
+Legacy `market_data_complete` keeps its original market-presence semantics; the new
+market `fresh` flag adds stricter count/coverage checks.
+
+The export-only calendar covers 2026, using the TWSE annual holiday schedule and
+the confirmed extraordinary 2026-10-23 closure. Today's data becomes due at the
+existing 17:00 Asia/Taipei Cron time; before then the last trading day is expected.
+Outside covered dates, `expected_trade_date` is null and all markets fail closed.
+Maintain the calendar for a new year or newly announced extraordinary closures.
+The calendar does not change Cron, fetch jobs or the source of prices.
+
+All retrieval responses use `Cache-Control: no-store`; JSON and HTTP headers share
+`response_id`, `scan_date` and generation time. Custom headers are CORS-exposed.
+An audit log records response metadata, snapshot hash, market dates/flags/counts,
+HTTP status and JSON byte size, never candidates, secrets or credentials.
+
+### Tests
+
+`npm test` runs the existing algorithm/flow tests and retrieval unit tests.
+Optional real-data and local HTTP/HTTP2 transport tests use `V2_FIXTURE_PATH`,
+`V2_BASELINE_JSON` and `V2_BASELINE_SOURCE` pointing to an offline Production copy,
+its original API JSON and original Worker source. SQLite is opened read-only and
+the tests assert its file hash is unchanged. `V2_TRANSPORT_REPORT` saves size and
+transport results; local HTTP/2 uses h2c, with TLS/HTTP2 separately checked against
+the public deployment. No test calls Production admin/update/rebuild endpoints.
