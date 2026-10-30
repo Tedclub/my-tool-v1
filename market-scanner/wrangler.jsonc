@@ -4,6 +4,12 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-29",
   "workers_dev": true,
+  "vars": {
+    "STATIC_SNAPSHOT_EXPORT_ENABLED": "true",
+    "SNAPSHOT_GITHUB_REPOSITORY": "Tedclub/my-tool-v1",
+    "SNAPSHOT_GITHUB_BRANCH": "v2-snapshots",
+    "SNAPSHOT_R2_ENABLED": "false"
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
