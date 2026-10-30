@@ -253,3 +253,32 @@ test("scan search uses bound parameters for stock id or name", async () => {
   assert.ok(query.sql.includes("stock_id LIKE ? OR stock_name LIKE ?"));
   assert.deepEqual(query.binds, ["2026-09-29", "%台積%", "%台積%", 20]);
 });
+
+test("daily scheduled update remains successful when downstream snapshot read is unavailable", async () => {
+  const restoreFetch = installMarketFetch();
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const priceHistory = Array.from({ length: 21 }, (_, i) => {
+    const date = new Date(today + "T00:00:00Z"); date.setUTCDate(date.getUTCDate() - 20 + i);
+    return { market: "TWSE", stock_id: "2330", stock_name: "test", trade_date: date.toISOString().slice(0, 10),
+      open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i, volume: 1000,
+      amount: 50_000_000, reference_price: 100 + i, last_ask_price: 102 + i, last_ask_volume: 1,
+      security_type: "COMMON_STOCK", is_restricted: 0 };
+  });
+  const DB = mockDb({ priceHistory });
+  const prepare = DB.prepare;
+  DB.prepare = sql => {
+    if (sql.includes("WITH latest AS")) throw Error("injected snapshot read failure");
+    return prepare(sql);
+  };
+  const pending = []; const logs = []; const oldLog = console.log;
+  console.log = line => logs.push(line);
+  try {
+    await worker.scheduled({ cron: "0 9 * * *" }, { DB, STATIC_SNAPSHOT_EXPORT_ENABLED: "true" },
+      { waitUntil(promise) { pending.push(promise); } });
+    await Promise.all(pending);
+    assert.equal(pending.length, 1);
+    assert.ok(logs.some(line => JSON.parse(line).event === "daily_update" && JSON.parse(line).ok === true));
+    assert.ok(DB.calls.some(call => call.sql?.includes("INSERT INTO daily_prices")));
+    assert.ok(DB.calls.some(call => call.sql?.includes("INSERT INTO scanner_results")));
+  } finally { console.log = oldLog; restoreFetch(); }
+});

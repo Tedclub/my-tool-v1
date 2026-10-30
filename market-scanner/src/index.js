@@ -1,4 +1,5 @@
 import { SCANNER_READ_PATHS, handleScannerRead } from "./scanner-read.js";
+import { exportCompletedSnapshot } from "./static-snapshot.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -84,7 +85,7 @@ export default {
     }
   },
 
-  async scheduled(controller, env) {
+  async scheduled(controller, env, ctx) {
     await ensureSchema(env);
     if (controller.cron === "*/30 * * * *") {
       const status = await getBackfillStatus(env);
@@ -127,6 +128,13 @@ export default {
 
     const result = await updateOneDate(env, taipeiToday());
     console.log(JSON.stringify({ event: "daily_update", ...result }));
+    if (result.ok && result.scanner_rows > 0 && env.STATIC_SNAPSHOT_EXPORT_ENABLED === "true") {
+      const publishing = exportCompletedSnapshot(env, () => handleScannerRead(
+        new Request("https://snapshot.internal/api/v2/scanner/latest"), env, handleV2ScannerLatest
+      )).catch(() => console.warn(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT_FAILED" })));
+      if (ctx?.waitUntil) ctx.waitUntil(publishing);
+      else await publishing;
+    }
   }
 };
 
