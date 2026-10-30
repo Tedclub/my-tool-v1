@@ -1,3 +1,3 @@
-# V2 public snapshots
+# V2 Scanner public snapshots
 
-Data-only branch. Public read-only Scanner snapshots; no application code, credentials or workflows. No valid latest snapshot has been published yet. Consumers must fail closed when manifest.json is missing.
+Read manifest first and follow its immutable file links. Validate the existing snapshot_hash and current expected trading date. Stale/unknown/inconsistent data must DATA FAIL. TPEx is assessed separately.
