@@ -169,8 +169,18 @@ export async function exportCompletedSnapshot(env, loadFullSnapshot, options = {
     const response = await loadFullSnapshot();
     if (!response.ok) throw new Error("PRIMARY_UNAVAILABLE");
     bundle = await buildStaticSnapshot(await response.json());
-  } catch {
-    console.warn(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT_SKIPPED" }));
+  } catch (error) {
+    // Only known, non-sensitive validation codes are permitted in logs.
+    const safeCodes = new Set([
+      "PRIMARY_UNAVAILABLE", "PRIMARY_SNAPSHOT_HASH_INVALID",
+      "EXPECTED_TRADE_DATE_UNVERIFIED", "SNAPSHOT_HASH_MISMATCH",
+      "SNAPSHOT_NOT_CURRENT", "TWSE_DATA_UNVERIFIED",
+      "CANDIDATE_POOL_INCOMPLETE", "CANDIDATE_FIELDS_INVALID"
+    ]);
+    const codes = error instanceof Error ? error.message.split(",") : [];
+    const reason = codes.length > 0 && codes.every(code => safeCodes.has(code))
+      ? codes.join(",") : "UNKNOWN_ERROR";
+    console.warn(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT_SKIPPED", reason }));
     return { prepared: false };
   }
   const outcomes = {};
