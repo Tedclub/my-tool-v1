@@ -181,7 +181,17 @@ export async function exportCompletedSnapshot(env, loadFullSnapshot, options = {
     }, env.GITHUB_SNAPSHOT_TOKEN, options.fetcher)]
   ]) {
     try { await action(); outcomes[target] = true; }
-    catch { outcomes[target] = false; console.warn(JSON.stringify({ event: target + "_SNAPSHOT_EXPORT_FAILED" })); }
+    catch (error) {
+      outcomes[target] = false;
+      // Log only a bounded, known-safe reason code. Never log tokens, URLs,
+      // response bodies, request headers or arbitrary exception messages.
+      const message = error instanceof Error ? error.message : "";
+      const reason = /^(?:GITHUB_HTTP_(?:400|401|403|404|409|422|429|500|502|503|504)|GITHUB_NOT_CONFIGURED|INVALID_GITHUB_TARGET|GITHUB_BRANCH_NOT_DATA_ONLY|ARCHIVE_DATE_CONFLICT|R2_NOT_CONFIGURED)$/.test(message)
+        ? message
+        : error?.name === "TimeoutError" ? "REQUEST_TIMEOUT"
+        : "UNKNOWN_ERROR";
+      console.warn(JSON.stringify({ event: target + "_SNAPSHOT_EXPORT_FAILED", reason }));
+    }
   }
   console.log(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT", scan_date: bundle.manifest.scan_date,
     snapshot_hash: bundle.manifest.snapshot_hash, targets: outcomes }));
