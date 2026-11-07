@@ -187,7 +187,7 @@ export async function exportCompletedSnapshot(env, loadFullSnapshot, options = {
   for (const [target, action] of [
     ...(env.SNAPSHOT_R2_ENABLED === "true" ? [["R2", () => publishR2(bundle, env.V2_SNAPSHOTS)]] : []),
     ["GITHUB", () => publishGitHub(bundle, {
-      repository: env.SNAPSHOT_GITHUB_REPOSITORY, branch: env.SNAPSHOT_GITHUB_BRANCH
+      repository: env.SNAPSHOT_GITHUB_REPOSITORY || env.SNAPSHOT_GITHUB_REPO, branch: env.SNAPSHOT_GITHUB_BRANCH
     }, env.GITHUB_SNAPSHOT_TOKEN, options.fetcher)]
   ]) {
     try { await action(); outcomes[target] = true; }
