@@ -169,19 +169,39 @@ export async function exportCompletedSnapshot(env, loadFullSnapshot, options = {
     const response = await loadFullSnapshot();
     if (!response.ok) throw new Error("PRIMARY_UNAVAILABLE");
     bundle = await buildStaticSnapshot(await response.json());
-  } catch {
-    console.warn(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT_SKIPPED" }));
+  } catch (error) {
+    // Only known, non-sensitive validation codes are permitted in logs.
+    const safeCodes = new Set([
+      "PRIMARY_UNAVAILABLE", "PRIMARY_SNAPSHOT_HASH_INVALID",
+      "EXPECTED_TRADE_DATE_UNVERIFIED", "SNAPSHOT_HASH_MISMATCH",
+      "SNAPSHOT_NOT_CURRENT", "TWSE_DATA_UNVERIFIED",
+      "CANDIDATE_POOL_INCOMPLETE", "CANDIDATE_FIELDS_INVALID"
+    ]);
+    const codes = error instanceof Error ? error.message.split(",") : [];
+    const reason = codes.length > 0 && codes.every(code => safeCodes.has(code))
+      ? codes.join(",") : "UNKNOWN_ERROR";
+    console.warn(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT_SKIPPED", reason }));
     return { prepared: false };
   }
   const outcomes = {};
   for (const [target, action] of [
     ...(env.SNAPSHOT_R2_ENABLED === "true" ? [["R2", () => publishR2(bundle, env.V2_SNAPSHOTS)]] : []),
     ["GITHUB", () => publishGitHub(bundle, {
-      repository: env.SNAPSHOT_GITHUB_REPOSITORY, branch: env.SNAPSHOT_GITHUB_BRANCH
+      repository: env.SNAPSHOT_GITHUB_REPOSITORY || env.SNAPSHOT_GITHUB_REPO, branch: env.SNAPSHOT_GITHUB_BRANCH
     }, env.GITHUB_SNAPSHOT_TOKEN, options.fetcher)]
   ]) {
     try { await action(); outcomes[target] = true; }
-    catch { outcomes[target] = false; console.warn(JSON.stringify({ event: target + "_SNAPSHOT_EXPORT_FAILED" })); }
+    catch (error) {
+      outcomes[target] = false;
+      // Log only a bounded, known-safe reason code. Never log tokens, URLs,
+      // response bodies, request headers or arbitrary exception messages.
+      const message = error instanceof Error ? error.message : "";
+      const reason = /^(?:GITHUB_HTTP_(?:400|401|403|404|409|422|429|500|502|503|504)|GITHUB_NOT_CONFIGURED|INVALID_GITHUB_TARGET|GITHUB_BRANCH_NOT_DATA_ONLY|ARCHIVE_DATE_CONFLICT|R2_NOT_CONFIGURED)$/.test(message)
+        ? message
+        : error?.name === "TimeoutError" ? "REQUEST_TIMEOUT"
+        : "UNKNOWN_ERROR";
+      console.warn(JSON.stringify({ event: target + "_SNAPSHOT_EXPORT_FAILED", reason }));
+    }
   }
   console.log(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT", scan_date: bundle.manifest.scan_date,
     snapshot_hash: bundle.manifest.snapshot_hash, targets: outcomes }));
