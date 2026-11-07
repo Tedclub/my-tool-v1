@@ -166,3 +166,26 @@ test("manifest cannot redirect its static reader to another host", async () => {
     fetcher: async () => Response.json(b.manifest), now
   }), /INVALID_MANIFEST_FILE_PATH/);
 });
+
+test("snapshot preparation failure emits safe diagnostic reason only", async () => {
+  const logs = []; const original = console.warn; console.warn = line => logs.push(line);
+  try {
+    const result = await exportCompletedSnapshot({}, async () => new Response("unavailable", { status: 503 }));
+    assert.equal(result.prepared, false);
+    assert.deepEqual(JSON.parse(logs.at(-1)), {
+      event: "STATIC_SNAPSHOT_EXPORT_SKIPPED", reason: "PRIMARY_UNAVAILABLE"
+    });
+  } finally { console.warn = original; }
+});
+
+test("snapshot preparation unknown exception does not leak sensitive text", async () => {
+  const logs = []; const original = console.warn; console.warn = line => logs.push(line);
+  try {
+    const result = await exportCompletedSnapshot({}, async () => { throw Error("private-secret-value"); });
+    assert.equal(result.prepared, false);
+    assert.deepEqual(JSON.parse(logs.at(-1)), {
+      event: "STATIC_SNAPSHOT_EXPORT_SKIPPED", reason: "UNKNOWN_ERROR"
+    });
+    assert.ok(!logs.join("").includes("private-secret-value"));
+  } finally { console.warn = original; }
+});
