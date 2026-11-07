@@ -189,3 +189,23 @@ test("snapshot preparation unknown exception does not leak sensitive text", asyn
     assert.ok(!logs.join("").includes("private-secret-value"));
   } finally { console.warn = original; }
 });
+
+test("GitHub export supports existing Cloudflare SNAPSHOT_GITHUB_REPO variable", async () => {
+  const calls = [];
+  const fake = async (url, options) => {
+    calls.push({ url, method: options.method });
+    const data = url.includes("/git/ref/heads/") ? { object: { sha: "head" } } :
+      url.endsWith("/git/commits/head") ? { tree: { sha: "tree" } } :
+      url.includes("?recursive=1") ? { truncated: false, tree: [{ path: "README.md", type: "blob" }] } :
+      { sha: "next" };
+    return Response.json(data);
+  };
+  const result = await exportCompletedSnapshot({
+    SNAPSHOT_GITHUB_REPO: "Tedclub/my-tool-v1", SNAPSHOT_GITHUB_BRANCH: "v2-snapshots",
+    GITHUB_SNAPSHOT_TOKEN: "test-token"
+  }, async () => Response.json(copy(full)), { fetcher: fake });
+  assert.equal(result.prepared, true);
+  assert.deepEqual(result.targets, { GITHUB: true });
+  assert.ok(calls.length > 0);
+  assert.ok(calls.every(call => call.url.startsWith("https://api.github.com/repos/Tedclub/my-tool-v1/")));
+});
