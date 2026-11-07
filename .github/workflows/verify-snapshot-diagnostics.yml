@@ -1,0 +1,27 @@
+name: Verify snapshot diagnostics
+on:
+  push:
+    branches:
+      - fix/v2-snapshot-export-diagnostics-20261107
+  pull_request:
+    paths:
+      - 'market-scanner/**'
+      - '.github/workflows/verify-snapshot-diagnostics.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: market-scanner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run Node tests
+        run: npm test
+      - name: Install Wrangler for offline build validation
+        run: npm install --no-audit --no-fund
+      - name: Build Worker without deploying
+        run: npx wrangler deploy --dry-run --outdir /tmp/taiwan-market-scanner-dry-run
