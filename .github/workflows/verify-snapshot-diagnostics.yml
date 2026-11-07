@@ -21,3 +21,7 @@ jobs:
           node-version: '22'
       - name: Run Node tests
         run: npm test
+      - name: Install Wrangler for offline build validation
+        run: npm install --no-audit --no-fund
+      - name: Build Worker without deploying
+        run: npx wrangler deploy --dry-run --outdir /tmp/taiwan-market-scanner-dry-run
