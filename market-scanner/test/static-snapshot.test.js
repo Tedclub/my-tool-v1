@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import worker, { fetchJsonOrEmpty } from "../src/index.js";
 import { buildStaticSnapshot, validateStaticSnapshot, publishR2, publishGitHub,
   exportCompletedSnapshot } from "../src/static-snapshot.js";
 import { COMPACT_FIELDS } from "../src/scanner-read.js";
@@ -128,9 +129,16 @@ test("both publishing failures resolve normally and never expose secrets or erro
       fetcher: async () => { throw Error("never-log-me"); }
     });
     assert.equal(result.prepared, true); assert.deepEqual(result.targets, { R2: false, GITHUB: false });
-    assert.ok(logs.some(line => line.includes("R2_SNAPSHOT_EXPORT_FAILED")));
-    assert.ok(logs.some(line => line.includes("GITHUB_SNAPSHOT_EXPORT_FAILED")));
+    assert.deepEqual(result.failures, {
+      R2: { reason: "UNKNOWN_ERROR", stage: "unknown" },
+      GITHUB: { reason: "UNKNOWN_ERROR", stage: "get_ref" }
+    });
+    assert.deepEqual(logs.map(JSON.parse), [
+      { event: "R2_SNAPSHOT_EXPORT_FAILED", ...result.failures.R2 },
+      { event: "GITHUB_SNAPSHOT_EXPORT_FAILED", ...result.failures.GITHUB }
+    ]);
     assert.ok(!logs.join("").includes("never-log-me"));
+    assert.ok(!JSON.stringify(result).includes("never-log-me"));
   } finally { console.warn = warn; }
 });
 
@@ -171,7 +179,7 @@ test("snapshot preparation failure emits safe diagnostic reason only", async () 
   const logs = []; const original = console.warn; console.warn = line => logs.push(line);
   try {
     const result = await exportCompletedSnapshot({}, async () => new Response("unavailable", { status: 503 }));
-    assert.equal(result.prepared, false);
+    assert.deepEqual(result, { prepared: false, reason: "PRIMARY_UNAVAILABLE" });
     assert.deepEqual(JSON.parse(logs.at(-1)), {
       event: "STATIC_SNAPSHOT_EXPORT_SKIPPED", reason: "PRIMARY_UNAVAILABLE"
     });
@@ -182,7 +190,7 @@ test("snapshot preparation unknown exception does not leak sensitive text", asyn
   const logs = []; const original = console.warn; console.warn = line => logs.push(line);
   try {
     const result = await exportCompletedSnapshot({}, async () => { throw Error("private-secret-value"); });
-    assert.equal(result.prepared, false);
+    assert.deepEqual(result, { prepared: false, reason: "UNKNOWN_ERROR" });
     assert.deepEqual(JSON.parse(logs.at(-1)), {
       event: "STATIC_SNAPSHOT_EXPORT_SKIPPED", reason: "UNKNOWN_ERROR"
     });
@@ -208,4 +216,157 @@ test("GitHub export supports existing Cloudflare SNAPSHOT_GITHUB_REPO variable",
   assert.deepEqual(result.targets, { GITHUB: true });
   assert.ok(calls.length > 0);
   assert.ok(calls.every(call => call.url.startsWith("https://api.github.com/repos/Tedclub/my-tool-v1/")));
+});
+
+const testToken = "test-only-secret";
+const githubConfig = {
+  SNAPSHOT_GITHUB_REPOSITORY: "Tedclub/my-tool-v1",
+  SNAPSHOT_GITHUB_BRANCH: "v2-snapshots",
+  GITHUB_SNAPSHOT_TOKEN: testToken
+};
+
+function githubResponse(url) {
+  const path = new URL(url).pathname;
+  if (path.endsWith("/git/ref/heads/v2-snapshots")) return Response.json({ object: { sha: "head" } });
+  if (path.endsWith("/git/commits/head")) return Response.json({ tree: { sha: "tree" } });
+  if (path.endsWith("/git/trees/tree")) return Response.json({ tree: [], truncated: false });
+  return Response.json({ sha: "next" });
+}
+
+for (const [name, failure, reason, atPatch] of [
+  ["subrequest limit", () => { throw Error("Too many subrequests " + testToken); }, "SUBREQUEST_LIMIT", true],
+  ["type error", () => { throw TypeError(testToken); }, "TYPE_ERROR", false],
+  ["unknown error", () => { throw Error("GITHUB_HTTP_418 " + testToken); }, "UNKNOWN_ERROR", false],
+  ["HTTP 418", () => new Response(testToken, { status: 418 }), "GITHUB_HTTP_418", false],
+  ["HTTP 422 conflict", () => new Response(testToken, { status: 422 }), "GITHUB_HTTP_422", true],
+  ["timeout", () => { throw new DOMException(testToken, "TimeoutError"); }, "REQUEST_TIMEOUT", false],
+  ["JSON parse failure", () => new Response(testToken), "UNKNOWN_ERROR", false]
+]) test("GitHub diagnostics classify " + name, async t => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const result = await exportCompletedSnapshot(githubConfig, () => Response.json(copy(full)), {
+    fetcher: async (url, options) => atPatch && options.method !== "PATCH" ? githubResponse(url) : failure()
+  });
+  const diagnostic = { reason, stage: atPatch ? "patch_ref" : "get_ref" };
+  assert.deepEqual(result.targets, { GITHUB: false });
+  assert.deepEqual(result.failures, { GITHUB: diagnostic });
+  const log = warn.mock.calls[0].arguments[0];
+  assert.deepEqual(JSON.parse(log), { event: "GITHUB_SNAPSHOT_EXPORT_FAILED", ...diagnostic });
+  assert.ok(!log.includes(testToken));
+  assert.ok(!JSON.stringify(result).includes(testToken));
+});
+
+test("reference list skips 302 after one manual fetch", async t => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const fetchMock = t.mock.method(globalThis, "fetch", async () =>
+    new Response(null, { status: 302, headers: { Location: "https://example.invalid/" + testToken } }));
+  assert.equal(await fetchJsonOrEmpty("https://example.invalid/list"), null);
+  assert.equal(fetchMock.mock.callCount(), 1);
+  assert.deepEqual(fetchMock.mock.calls[0].arguments[1], {
+    redirect: "manual", headers: { Accept: "application/json" }
+  });
+  assert.deepEqual(JSON.parse(warn.mock.calls[0].arguments[0]), {
+    event: "reference_list_redirect_skipped", status: 302
+  });
+});
+
+test("reference list still parses 200 JSON", async t => {
+  const payload = [{ Code: "2330" }];
+  t.mock.method(globalThis, "fetch", async () => Response.json(payload));
+  assert.deepEqual(await fetchJsonOrEmpty("https://example.invalid/list"), payload);
+});
+
+function mockExportDb(scanDate) {
+  const statements = [];
+  const sqlRead = {
+    stock_id: "2330", market: "TWSE", trade_date: scanDate, joined_price_date: scanDate,
+    daily_volume: 100, ma5: 100, ma20: 95, volume_ratio: 2, rs_excess_20_percent: 3,
+    rs_rank: 1, eligible: 1, trend_stage: "BULLISH_ALIGNMENT",
+    export_scan_date: scanDate, export_twse_date: scanDate, export_total_count: 1,
+    export_twse_rows: 1, export_twse_adjusted: 1, export_twse_index: 1,
+    export_read_integrity: JSON.stringify({ TWSE: {
+      price_rows: 1, recorded_price_rows: 1, adjusted_presence_recorded: 1,
+      index_presence_recorded: 1, index_rows: 1, scanner_rows: 1, expected_scanner_rows: 1,
+      missing_scanner_rows: 0, unexpected_scanner_rows: 0, candidate_rows: 1
+    }, TPEX: null })
+  };
+  return {
+    statements,
+    prepare(sql) {
+      statements.push(sql);
+      return {
+        sql,
+        first: async () => ({ name: "backfill_progress" }),
+        all: async () => ({ results: [sqlRead] }),
+        run: async () => ({ success: true })
+      };
+    },
+    batch: async queries => queries.map(() => ({ success: true }))
+  };
+}
+
+const exportRequest = (token = testToken) => new Request("https://example.invalid/admin/export-snapshot", {
+  method: "POST", headers: { Authorization: "Bearer " + token }
+});
+
+const sentinel = "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backfill_progress'";
+for (const [name, admin, flag, status] of [
+  ["missing admin secret", undefined, "true", 503],
+  ["incorrect admin token", "different-test-token", "true", 401],
+  ["disabled", testToken, "false", 409]
+]) test("manual export rejects " + name, async t => {
+  const DB = mockExportDb(full.scan_date);
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => Response.json({}));
+  const result = await worker.fetch(exportRequest(), {
+    DB, ...githubConfig, ADMIN_TOKEN: admin, STATIC_SNAPSHOT_EXPORT_ENABLED: flag
+  });
+  const body = await result.json();
+  assert.equal(result.status, status);
+  assert.equal(body.ok, false);
+  if (status === 503) assert.deepEqual(body, { ok: false, reason: "ADMIN_NOT_CONFIGURED" });
+  if (status === 401) assert.deepEqual(body, { ok: false, reason: "UNAUTHORIZED" });
+  if (status === 409) assert.deepEqual(body, { ok: false, reason: "EXPORT_DISABLED" });
+  assert.deepEqual(DB.statements, [sentinel]);
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.ok(!JSON.stringify(body).includes(testToken));
+});
+
+test("manual export sanitizes an unexpected D1 exception", async () => {
+  const result = await worker.fetch(exportRequest(), {
+    ADMIN_TOKEN: testToken, STATIC_SNAPSHOT_EXPORT_ENABLED: "true",
+    DB: { prepare() { throw Error(testToken); } }
+  });
+  assert.equal(result.status, 503);
+  assert.deepEqual(await result.json(), { ok: false, reason: "UNKNOWN_ERROR" });
+});
+
+for (const [name, scanDate, githubStatus, status] of [
+  ["succeeds", full.scan_date, 200, 200],
+  ["reports GitHub failure", full.scan_date, 418, 503],
+  ["rejects a stale snapshot", "2026-10-22", 200, 503]
+]) test("manual export " + name + " without market fetches or D1 writes", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const DB = mockExportDb(scanDate);
+  const fetchMock = t.mock.method(globalThis, "fetch", async url => githubStatus === 200
+    ? githubResponse(url) : new Response(testToken, { status: githubStatus }));
+  const result = await worker.fetch(exportRequest(), {
+    DB, ...githubConfig, ADMIN_TOKEN: testToken, STATIC_SNAPSHOT_EXPORT_ENABLED: "true"
+  });
+  const body = await result.json();
+  assert.equal(result.status, status);
+  assert.equal(body.ok, status === 200);
+  assert.equal(DB.statements.length, 2);
+  assert.equal(DB.statements[0], sentinel);
+  assert.match(DB.statements[1], /^\s*WITH latest AS/);
+  assert.ok(DB.statements.every(sql => !/\b(?:ALTER|CREATE|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql)));
+  assert.ok(fetchMock.mock.calls.every(call => new URL(call.arguments[0]).hostname === "api.github.com"));
+  assert.ok(!JSON.stringify(body).includes(testToken));
+  if (scanDate !== full.scan_date) {
+    assert.equal(body.prepared, false);
+    assert.match(body.reason, /SNAPSHOT_NOT_CURRENT/);
+    assert.equal(fetchMock.mock.callCount(), 0);
+  } else {
+    assert.equal(body.targets.GITHUB, status === 200);
+    assert.equal(fetchMock.mock.callCount(), status === 200 ? 6 : 1);
+    if (status === 503) assert.deepEqual(body.failures.GITHUB, { reason: "GITHUB_HTTP_418", stage: "get_ref" });
+  }
 });
