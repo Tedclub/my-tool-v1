@@ -1,4 +1,4 @@
-import test, { before, after } from "node:test";
+import test, { before, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import http2 from "node:http2";
@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import worker from "../src/index.js";
 
 const active = Boolean(process.env.V2_FIXTURE_PATH);
+if (active) mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-28T03:46:21Z") });
 const measured = [];
 let db, server, server2, port, port2, originalHash;
 const hashFile = () => crypto.createHash("sha256").update(fs.readFileSync(process.env.V2_FIXTURE_PATH)).digest("hex");

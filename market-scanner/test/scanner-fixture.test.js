@@ -1,15 +1,17 @@
-import test, { after } from "node:test";
+import test, { after, mock } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import worker from "../src/index.js";
 import { COMPACT_FIELDS } from "../src/scanner-read.js";
+import { buildStaticSnapshot, validateStaticSnapshot } from "../src/static-snapshot.js";
 
 const filename = process.env.V2_FIXTURE_PATH;
 const baselineJson = process.env.V2_BASELINE_JSON;
 const baselineSource = process.env.V2_BASELINE_SOURCE;
 const active = Boolean(filename && baselineJson && baselineSource);
+if (active) mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-28T03:46:21Z") });
 const digest = file => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const originalHash = active ? digest(filename) : null;
 const db = active ? new DatabaseSync(filename, { readOnly: true }) : null;
@@ -27,12 +29,17 @@ const get = path => worker.fetch(new Request("https://scanner.test/api/v2/scanne
 const stored = active ? JSON.parse(fs.readFileSync(baselineJson)) : null;
 after(() => { if (db) { db.close(); assert.equal(digest(filename), originalHash, "Fixture bytes must remain unchanged"); } });
 
-test("real SQLite: latest candidates are byte-value identical to existing Production API", { skip: !active }, async () => {
+test("real SQLite: TWSE candidates match Production and historical TPEX does not affect freshness", { skip: !active }, async () => {
   const before = selectCalls; const response = await get("latest"); const body = await response.json();
   assert.equal(response.status, 200); assert.equal(selectCalls - before, 1);
-  assert.equal(body.scan_date, stored.scan_date); assert.deepEqual(body.candidates, stored.candidates);
-  for (const key of ["api_version", "scan_completed_at", "pool_complete", "market_data_complete", "latest_price_dates", "counts_by_stage", "definitions", "unavailable_fields"]) assert.deepEqual(body[key], stored[key]);
-  assert.equal(body.markets.TWSE.fresh, true); assert.equal(body.markets.TPEX.fresh, false);
+  assert.equal(body.scan_date, stored.scan_date); assert.deepEqual(body.candidates, stored.candidates.filter(row => row.market === "TWSE"));
+  for (const key of ["api_version", "scan_completed_at", "pool_complete", "counts_by_stage", "definitions", "unavailable_fields"]) assert.deepEqual(body[key], stored[key]);
+  assert.equal(body.fresh, true);
+  assert.equal(body.markets.TWSE.fresh, true);
+  assert.equal(body.market_data_complete, true);
+  assert.deepEqual(body.latest_price_dates, { TWSE: stored.latest_price_dates.TWSE });
+  assert.deepEqual(Object.keys(body.markets), ["TWSE"]);
+  assert.ok(!body.warnings.some(warning => warning.startsWith("TPEX")));
   assert.equal(body.markets.TWSE.checks.scanner_rows, 1080);
   assert.equal(body.markets.TWSE.checks.expected_scanner_rows, 1080);
 });
@@ -42,6 +49,14 @@ test("real SQLite: summary is lightweight and matches full snapshot", { skip: !a
   assert.equal(summary.candidate_count, 108); assert.equal(summary.markets.TWSE.candidate_count, 108);
   assert.ok(Buffer.byteLength(text) < 7000);
 });
+test("real SQLite: TWSE-only API builds a valid static backup with the same hash", { skip: !active }, async () => {
+  const full = await (await get("latest")).json();
+  const { manifest, summary, compact } = await buildStaticSnapshot(full);
+  assert.equal(manifest.snapshot_hash, full.snapshot_hash);
+  assert.equal(compact.candidates.length, full.candidates.length);
+  assert.equal(validateStaticSnapshot(manifest, summary, compact).ok, true);
+});
+
 test("real SQLite: compact returns all 108 TWSE candidates, exactly the 23 requested fields", { skip: !active }, async () => {
   const full = await (await get("latest")).json();
   const response = await get("candidates?market=TWSE&scan_date=2026-10-27&compact=1&snapshot_hash=" + full.snapshot_hash);
@@ -49,17 +64,26 @@ test("real SQLite: compact returns all 108 TWSE candidates, exactly the 23 reque
   assert.equal(body.snapshot_hash, full.snapshot_hash); assert.equal(body.candidates.length, 108);
   body.candidates.forEach((row, i) => { assert.deepEqual(Object.keys(row), [...COMPACT_FIELDS]); for (const field of COMPACT_FIELDS) assert.equal(row[field], full.candidates[i][field] ?? null); });
 });
-test("real SQLite: stale TPEX and wrong date fail closed without blocking TWSE", { skip: !active }, async () => {
-  for (const path of ["candidates?market=TPEX&scan_date=2026-10-27", "candidates?market=TWSE&scan_date=2026-10-22"]) {
-    const response = await get(path); const body = await response.json(); assert.equal(response.status, 409); assert.equal(body.fresh, false); assert.deepEqual(body.candidates, []);
-  }
+test("real SQLite: rejects retired TPEX and keeps TWSE date validation", { skip: !active }, async () => {
+  const retired = await get("candidates?market=TPEX&scan_date=2026-10-27");
+  assert.equal(retired.status, 400);
+  assert.equal((await retired.json()).error, "MARKET_NOT_SUPPORTED");
+  const wrongDate = await get("candidates?market=TWSE&scan_date=2026-10-22");
+  const body = await wrongDate.json();
+  assert.equal(wrongDate.status, 409);
+  assert.equal(body.fresh, false);
+  assert.deepEqual(body.candidates, []);
 });
-test("all operational functions, Scanner constants, and legacy scan handler remain unchanged", { skip: !active }, () => {
+test("Scanner calculations, constants and schema initialization remain unchanged", { skip: !active }, () => {
   const normalize = text => text.replaceAll("\r\n", "\n");
   const old = normalize(fs.readFileSync(baselineSource, "utf8"));
   const current = normalize(fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8"));
-  const operational = text => text.slice(text.indexOf("async function ensureSchema("), text.indexOf("async function handleV2ScannerLatest("));
-  assert.equal(operational(current), operational(old));
+  const section = (text, start, end) => text.slice(text.indexOf(start), text.indexOf(end));
+  for (const [start, end] of [
+    ["async function ensureSchema(", "function cleanText("],
+    ["function sma(", "async function rebuildLatestScanner("],
+    ["  const indices = new Map();", "async function handleScan("]
+  ]) assert.equal(section(current, start, end), section(old, start, end));
   const constants = text => text.slice(text.indexOf("const BACKFILL_MAX_TRADING_DAYS"), text.indexOf("export default"));
   assert.equal(constants(current), constants(old));
 });

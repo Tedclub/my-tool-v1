@@ -1,6 +1,5 @@
 const state = {
   stage: "BREAKOUT_CANDIDATE",
-  market: "",
   query: "",
   sort: "rs",
   rows: [],
@@ -23,9 +22,9 @@ const signalNames = {
 };
 
 const els = Object.fromEntries([
-  "serviceStatus", "tradeDate", "twseDays", "tpexDays", "twseState", "tpexState",
-  "resultCount", "resultDescription", "stageFilter", "marketFilter", "stockSearch",
-  "sortFilter", "refreshButton", "marketNotice", "sectionTitle", "lastUpdated",
+  "serviceStatus", "tradeDate", "twseDays", "twseState",
+  "resultCount", "resultDescription", "stageFilter", "stockSearch",
+  "sortFilter", "refreshButton", "sectionTitle", "lastUpdated",
   "loadingState", "errorState", "errorMessage", "retryButton", "emptyState",
   "results", "stockTableBody", "stockCards", "rsGuideStatus"
 ].map(id => [id, document.getElementById(id)]));
@@ -89,7 +88,7 @@ function tableRow(row) {
   return `
     <tr>
       <td class="stock-cell"><strong>${escapeHtml(row.stock_name)}</strong><span>${escapeHtml(row.stock_id)}</span></td>
-      <td><span class="market-badge">${row.market === "TPEX" ? "上櫃" : "上市"}</span></td>
+      <td><span class="market-badge">上市</span></td>
       <td class="metric-secondary">${number(row.close)}</td>
       <td class="metric-primary">${number(row.rs_rank, 1)}</td>
       <td class="metric-secondary">${money(row.amount)}</td>
@@ -105,7 +104,7 @@ function stockCard(row) {
   return `
     <article class="stock-card">
       <div class="card-top">
-        <div class="card-title"><strong>${escapeHtml(row.stock_name)}</strong><span>${escapeHtml(row.stock_id)} · ${row.market === "TPEX" ? "上櫃" : "上市"}</span></div>
+        <div class="card-title"><strong>${escapeHtml(row.stock_name)}</strong><span>${escapeHtml(row.stock_id)} · 上市</span></div>
         <span class="signal-badge ${signalClass(row.trend_stage)}">${signalNames[row.trend_stage] || row.trend_stage}</span>
       </div>
       <div class="card-price"><span>收盤價</span><strong>${number(row.close)}</strong></div>
@@ -130,23 +129,17 @@ function render() {
   const hasRows = rows.length > 0;
   els.results.hidden = !hasRows || state.loading;
   els.emptyState.hidden = hasRows || state.loading;
-  els.marketNotice.hidden = Number(state.status?.tpex_trading_days || 0) >= 60;
 }
 
 function renderStatus(scan) {
   const status = state.status || {};
   const twseDays = Number(status.twse_trading_days || 0);
-  const tpexDays = Number(status.tpex_trading_days || 0);
   const twseReady = Number(status.twse_adjusted_days || 0) >= 21 && Number(status.twse_index_days || 0) >= 21;
-  const tpexReady = Number(status.tpex_adjusted_days || 0) >= 60 && Number(status.tpex_index_days || 0) >= 21;
   const rsReady = Number(status.latest_rs_rows || 0) > 0;
   els.tradeDate.textContent = scan.trade_date || status.latest_trade_date || "—";
   els.twseDays.textContent = number(twseDays, 0);
-  els.tpexDays.textContent = number(tpexDays, 0);
   els.twseState.textContent = twseReady ? "還原價格與 RS 完整" : "品質資料補建中";
   els.twseState.className = twseReady ? "complete" : "pending";
-  els.tpexState.textContent = tpexReady ? "還原價格與 RS 完整" : "歷史資料回補中";
-  els.tpexState.className = tpexReady ? "complete" : "pending";
   els.rsGuideStatus.textContent = rsReady
     ? "RS 排名已可使用，仍請搭配乖離、風險與成交金額判讀"
     : "RS 尚未完成：目前先看量比、乖離、風險與成交金額";
@@ -164,7 +157,6 @@ async function loadData() {
   els.refreshButton.disabled = true;
 
   const params = new URLSearchParams({ stage: state.stage, limit: "500" });
-  if (state.market) params.set("market", state.market);
   if (state.query) params.set("q", state.query);
 
   try {
@@ -213,10 +205,6 @@ els.stageFilter.addEventListener("click", event => {
   loadData();
 });
 
-els.marketFilter.addEventListener("change", event => {
-  state.market = event.target.value;
-  loadData();
-});
 
 els.sortFilter.addEventListener("change", event => {
   state.sort = event.target.value;

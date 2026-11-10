@@ -32,7 +32,7 @@ export async function snapshotHash(base) {
   return "sha256:" + [...new Uint8Array(digest)].map(n => n.toString(16).padStart(2, "0")).join("");
 }
 
-export async function snapshotMetadata(base, now = new Date()) {
+export async function snapshotMetadata(base, now = new Date(), activeMarkets = MARKETS) {
   const expected = expectedTradeDate(now);
   const candidates = base.candidates || [];
   const warnings = [...(base.warnings || [])];
@@ -40,7 +40,7 @@ export async function snapshotMetadata(base, now = new Date()) {
   if (!expected) warn("EXPECTED_TRADE_DATE_UNVERIFIED");
   if (expected && base.scan_date !== expected) warn("SCAN_DATE_NOT_EXPECTED_TRADE_DATE");
   const markets = {};
-  for (const market of MARKETS) {
+  for (const market of activeMarkets) {
     const rows = candidates.filter(row => row.market === market);
     const checks = base._read_integrity?.[market];
     const date = base.latest_price_dates?.[market] || null;
@@ -70,13 +70,13 @@ export async function snapshotMetadata(base, now = new Date()) {
       integrity_verified: integrity, checks: checks || null, warnings: marketWarnings
     };
   }
-  const datesConsistent = MARKETS.every(market => markets[market].dates_consistent) &&
-    candidates.every(row => MARKETS.includes(row.market));
+  const datesConsistent = activeMarkets.every(market => markets[market].dates_consistent) &&
+    candidates.every(row => activeMarkets.includes(row.market));
   return {
     retrieval_version: "v2-retrieval-1", snapshot_hash_version: "v2-snapshot-sha256-1",
     snapshot_hash: await snapshotHash(base),
     expected_trade_date: expected, scan_date: base.scan_date || null,
-    fresh: Boolean(base.pool_complete && datesConsistent && MARKETS.every(market => markets[market].fresh)),
+    fresh: Boolean(base.pool_complete && datesConsistent && activeMarkets.every(market => markets[market].fresh)),
     dates_consistent: datesConsistent, candidate_count: candidates.length,
     fresh_candidate_count: candidates.filter(row => markets[row.market]?.fresh).length,
     snapshot_candidate_count: candidates.length,
@@ -105,7 +105,7 @@ function response(request, payload, status = 200) {
     snapshot_hash: payload.snapshot_hash, scan_date: payload.scan_date,
     expected_trade_date: payload.expected_trade_date, fresh: payload.fresh,
     candidate_count: payload.candidate_count, market: payload.market || "ALL",
-    markets: payload.markets ? Object.fromEntries(MARKETS.map(market => [market, {
+    markets: payload.markets ? Object.fromEntries(Object.keys(payload.markets).map(market => [market, {
       latest_price_date: payload.markets[market].latest_price_date,
       fresh: payload.markets[market].fresh, candidate_count: payload.markets[market].candidate_count
     }])) : null,
@@ -122,7 +122,7 @@ function validDate(value) {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-export async function handleScannerRead(request, env, loadLegacySnapshot) {
+export async function handleScannerRead(request, env, loadLegacySnapshot, activeMarkets = MARKETS) {
   const responseId = crypto.randomUUID();
   const fail = (code, status, extra = {}) => response(request, {
     ok: false, response_id: responseId, response_generated_at: new Date().toISOString(),
@@ -143,6 +143,7 @@ export async function handleScannerRead(request, env, loadLegacySnapshot) {
   const requestedHash = url.searchParams.get("snapshot_hash");
   if (scoped) {
     if (!MARKETS.includes(market)) return fail("INVALID_MARKET", 400);
+    if (!activeMarkets.includes(market)) return fail("MARKET_NOT_SUPPORTED", 400);
     if (!validDate(requestedDate)) return fail("INVALID_SCAN_DATE", 400);
     if (url.searchParams.has("compact") && !["0", "1"].includes(url.searchParams.get("compact"))) return fail("INVALID_COMPACT", 400);
     if (requestedHash && !/^sha256:[a-f0-9]{64}$/.test(requestedHash)) return fail("INVALID_SNAPSHOT_HASH", 400);
@@ -152,7 +153,7 @@ export async function handleScannerRead(request, env, loadLegacySnapshot) {
     if (!legacy.ok) return fail("SNAPSHOT_UNAVAILABLE", 503);
     const base = await legacy.json();
     const generated = new Date();
-    const metadata = await snapshotMetadata(base, generated);
+    const metadata = await snapshotMetadata(base, generated, activeMarkets);
     const generatedAt = generated.toISOString();
     const { _read_integrity, ...compatible } = base;
     const full = { ...compatible, ...metadata, response_id: responseId,
