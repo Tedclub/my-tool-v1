@@ -25,7 +25,9 @@ function twsePayload(date) {
 
 function installMarketFetch() {
   const originalFetch = globalThis.fetch;
+  const hosts = [];
   globalThis.fetch = async url => {
+    hosts.push(new URL(url).hostname);
     const value = String(url);
     if (value.includes("twse.com.tw")) {
       return new Response(JSON.stringify(twsePayload()), {
@@ -33,15 +35,13 @@ function installMarketFetch() {
         headers: { "content-type": "application/json" }
       });
     }
-    if (value.includes("tpex.org.tw")) {
-      return new Response(JSON.stringify({ tables: [] }), {
-        status: 200,
-        headers: { "content-type": "application/json" }
-      });
-    }
-    return originalFetch(url);
+    throw new Error("Unexpected market fetch: " + value);
   };
-  return () => { globalThis.fetch = originalFetch; };
+  return () => {
+    globalThis.fetch = originalFetch;
+    assert.ok(hosts.length > 0);
+    assert.ok(hosts.every(host => ["www.twse.com.tw", "openapi.twse.com.tw"].includes(host)), hosts.join(", "));
+  };
 }
 
 function mockDb({
@@ -112,6 +112,7 @@ test("admin backfill writes only price history and returns next_before", async (
 
     assert.equal(response.status, 200);
     assert.equal(body.completed_trading_days, 1);
+    assert.deepEqual(body.dates[0].by_market, { TWSE: 1 });
     assert.equal(body.scanner_rows, 0);
     assert.equal(body.next_before, "2026-09-28");
     assert.ok(DB.calls.some(call => call.sql?.includes("INSERT INTO daily_prices")));
@@ -152,6 +153,7 @@ test("admin update keeps the daily price-then-scanner flow", async () => {
 
     assert.equal(response.status, 200);
     assert.equal(body.trading_day, true);
+    assert.deepEqual(body.by_market, { TWSE: 1 });
     assert.ok(DB.calls.some(call => call.sql?.includes("INSERT INTO daily_prices")));
     assert.ok(DB.calls.some(call => call.sql?.includes("ORDER BY stock_id ASC, trade_date ASC")));
   } finally {
