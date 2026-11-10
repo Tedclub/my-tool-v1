@@ -68,6 +68,19 @@ export default {
         return json(result);
       }
 
+      if (url.pathname === "/admin/export-snapshot" && request.method === "POST") {
+        requireAdmin(request, env);
+        if (env.STATIC_SNAPSHOT_EXPORT_ENABLED !== "true") {
+          return json({ ok: false, reason: "EXPORT_DISABLED" }, 409);
+        }
+        const result = await exportCompletedSnapshot(env, () => handleScannerRead(
+          new Request("https://snapshot.internal/api/v2/scanner/latest"),
+          env, handleV2ScannerLatest
+        ));
+        const succeeded = result.prepared === true && result.targets?.GITHUB === true;
+        return json({ ok: succeeded, ...result }, succeeded ? 200 : 503);
+      }
+
       return json({
         ok: true,
         endpoints: {
@@ -76,10 +89,16 @@ export default {
           backfill_status: "GET /api/backfill-status",
           update: "POST /admin/update?date=YYYY-MM-DD",
           backfill: "POST /admin/backfill?days=10&before=YYYY-MM-DD",
-          rebuild_latest: "POST /admin/rebuild-latest"
+          rebuild_latest: "POST /admin/rebuild-latest",
+          export_snapshot: "POST /admin/export-snapshot"
         }
       });
     } catch (error) {
+      if (request.method === "POST" && new URL(request.url).pathname === "/admin/export-snapshot") {
+        if (error?.status === 401) return json({ ok: false, reason: "UNAUTHORIZED" }, 401);
+        const reason = error?.status === 503 && !env.ADMIN_TOKEN ? "ADMIN_NOT_CONFIGURED" : "UNKNOWN_ERROR";
+        return json({ ok: false, reason }, 503);
+      }
       const status = error && error.status ? error.status : 500;
       return json({ ok: false, error: error.message || String(error) }, status);
     }
@@ -616,9 +635,16 @@ async function fetchTpexSeed(env, date) {
   }
 }
 
-async function fetchJsonOrEmpty(url) {
+export async function fetchJsonOrEmpty(url) {
   try {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const res = await fetch(url, {
+      redirect: "manual",
+      headers: { Accept: "application/json" }
+    });
+    if (res.status >= 300 && res.status < 400) {
+      console.warn(JSON.stringify({ event: "reference_list_redirect_skipped", status: res.status }));
+      return null;
+    }
     if (!res.ok) return null;
     return await res.json();
   } catch (error) {

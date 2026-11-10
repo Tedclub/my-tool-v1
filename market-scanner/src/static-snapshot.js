@@ -4,6 +4,9 @@ import { expectedTradeDate } from "./trading-calendar.js";
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const FILES = ["summary.json", "TWSE-compact.json", "manifest.json"];
+const GITHUB_STAGES = new Set([
+  "get_ref", "get_commit", "get_tree", "get_archive", "post_tree", "post_commit", "patch_ref"
+]);
 const json = value => JSON.stringify(value) + "\n";
 
 export function validateStaticSnapshot(manifest, summary, compact, now = new Date()) {
@@ -127,22 +130,27 @@ export async function publishGitHub(bundle, config, token, fetcher = fetch) {
   const headers = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "V2-static-snapshot-publisher", Authorization: "Bearer " + token,
     "Content-Type": "application/json" };
-  const api = async (path, method = "GET", body) => {
-    const response = await fetcher(root + path, { method, headers,
-      signal: AbortSignal.timeout(15000), ...(body ? { body: JSON.stringify(body) } : {}) });
-    if (!response.ok) throw new Error("GITHUB_HTTP_" + response.status);
-    return response.json();
+  const api = async (stage, path, method = "GET", body) => {
+    try {
+      const response = await fetcher(root + path, { method, headers,
+        signal: AbortSignal.timeout(15000), ...(body ? { body: JSON.stringify(body) } : {}) });
+      if (!response.ok) throw new Error("GITHUB_HTTP_" + response.status);
+      return await response.json();
+    } catch (error) {
+      if (error && typeof error === "object" && Object.isExtensible(error)) error.stage = stage;
+      throw error;
+    }
   };
   // This branch must contain only static data files, never application files/main.
-  const ref = await api("/git/ref/heads/" + branch);
-  const head = await api("/git/commits/" + ref.object.sha);
-  const current = await api("/git/trees/" + head.tree.sha + "?recursive=1");
+  const ref = await api("get_ref", "/git/ref/heads/" + branch);
+  const head = await api("get_commit", "/git/commits/" + ref.object.sha);
+  const current = await api("get_tree", "/git/trees/" + head.tree.sha + "?recursive=1");
   if (current.truncated || current.tree.some(entry => entry.type === "blob" &&
       !entry.path.startsWith("v2/") && entry.path !== "README.md")) throw new Error("GITHUB_BRANCH_NOT_DATA_ONLY");
   const existing = new Set(current.tree.map(entry => entry.path));
   const archive = "v2/archive/" + bundle.manifest.scan_date + "/";
   if (existing.has(archive + "manifest.json")) {
-    const old = await api("/contents/" + archive + "manifest.json?ref=" + branch);
+    const old = await api("get_archive", "/contents/" + archive + "manifest.json?ref=" + branch);
     const value = JSON.parse(atob(old.content.replace(/\s/g, "")));
     if (value.snapshot_hash !== bundle.manifest.snapshot_hash) throw new Error("ARCHIVE_DATE_CONFLICT");
   }
@@ -153,13 +161,13 @@ export async function publishGitHub(bundle, config, token, fetcher = fetch) {
     tree.push({ path, mode: "100644", type: "blob",
       content: name === "manifest.json" ? manifestAt(bundle, prefix) : bundle.files[name] });
   }
-  const next = await api("/git/trees", "POST", { base_tree: head.tree.sha, tree });
-  const commit = await api("/git/commits", "POST", {
+  const next = await api("post_tree", "/git/trees", "POST", { base_tree: head.tree.sha, tree });
+  const commit = await api("post_commit", "/git/commits", "POST", {
     message: "Publish V2 snapshot " + bundle.manifest.scan_date + " " + bundle.manifest.snapshot_hash,
     tree: next.sha, parents: [ref.object.sha]
   });
   // Git tree update makes all files visible atomically; no forced ref updates.
-  await api("/git/refs/heads/" + branch, "PATCH", { sha: commit.sha, force: false });
+  await api("patch_ref", "/git/refs/heads/" + branch, "PATCH", { sha: commit.sha, force: false });
   return commit.sha;
 }
 
@@ -181,9 +189,10 @@ export async function exportCompletedSnapshot(env, loadFullSnapshot, options = {
     const reason = codes.length > 0 && codes.every(code => safeCodes.has(code))
       ? codes.join(",") : "UNKNOWN_ERROR";
     console.warn(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT_SKIPPED", reason }));
-    return { prepared: false };
+    return { prepared: false, reason };
   }
   const outcomes = {};
+  const failures = {};
   for (const [target, action] of [
     ...(env.SNAPSHOT_R2_ENABLED === "true" ? [["R2", () => publishR2(bundle, env.V2_SNAPSHOTS)]] : []),
     ["GITHUB", () => publishGitHub(bundle, {
@@ -196,14 +205,19 @@ export async function exportCompletedSnapshot(env, loadFullSnapshot, options = {
       // Log only a bounded, known-safe reason code. Never log tokens, URLs,
       // response bodies, request headers or arbitrary exception messages.
       const message = error instanceof Error ? error.message : "";
-      const reason = /^(?:GITHUB_HTTP_(?:400|401|403|404|409|422|429|500|502|503|504)|GITHUB_NOT_CONFIGURED|INVALID_GITHUB_TARGET|GITHUB_BRANCH_NOT_DATA_ONLY|ARCHIVE_DATE_CONFLICT|R2_NOT_CONFIGURED)$/.test(message)
+      const reason = /^(?:GITHUB_HTTP_\d{3}|GITHUB_NOT_CONFIGURED|INVALID_GITHUB_TARGET|GITHUB_BRANCH_NOT_DATA_ONLY|ARCHIVE_DATE_CONFLICT|R2_NOT_CONFIGURED)$/.test(message)
         ? message
         : error?.name === "TimeoutError" ? "REQUEST_TIMEOUT"
+        : /subrequest/i.test(message) ? "SUBREQUEST_LIMIT"
+        : error?.name === "TypeError" ? "TYPE_ERROR"
         : "UNKNOWN_ERROR";
-      console.warn(JSON.stringify({ event: target + "_SNAPSHOT_EXPORT_FAILED", reason }));
+      const stage = target === "GITHUB" && GITHUB_STAGES.has(error?.stage) ? error.stage : "unknown";
+      failures[target] = { reason, stage };
+      console.warn(JSON.stringify({ event: target + "_SNAPSHOT_EXPORT_FAILED", reason, stage }));
     }
   }
   console.log(JSON.stringify({ event: "STATIC_SNAPSHOT_EXPORT", scan_date: bundle.manifest.scan_date,
     snapshot_hash: bundle.manifest.snapshot_hash, targets: outcomes }));
-  return { prepared: true, snapshot_hash: bundle.manifest.snapshot_hash, targets: outcomes };
+  return { prepared: true, snapshot_hash: bundle.manifest.snapshot_hash, targets: outcomes,
+    ...(Object.keys(failures).length ? { failures } : {}) };
 }
